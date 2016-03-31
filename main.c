@@ -2,7 +2,7 @@
 /**
 Microcontrolador: AT89S52
 Frequência ideal de operação: f=12Mhz
-Ainda assim, sensor DS18B20 e LCD funcionando com f=24Mhz na prática.
+Ainda assim, sensor DS18B20 e LCD funcionando com f=20Mhz na prática.
 Compilador usado: SDCC 3.3.0 #8604 (may/11/2013)
 IDE usada: MCU 8051 IDE v1.4.7
 Diretivas do SDCC:sdcc -mmcs51 --iram-size 256 --xram-size 0 --code-size 8192  --nooverlay --noinduction --verbose --debug --opt-code-speed -V --std-sdcc89 
@@ -22,71 +22,35 @@ Os dados do sensor de temperatura são enviados através de um módulo emissor d
 **/
 
 #include <at89s8252.h> //compatível com AT89S52
+#include "lcd.h"//biblioteca do display LCD16x2 4 bits
+#include "serial.h"//biblioteca da serial
+#include "ds18b20.h"
 
 /*********DEFINIÇÃO DOS PORTS E CONSTANTES**************/
 // ports
-# define	DQ			P3_4
+# define	DQ			P3_1
 //# define	DQ1			P3_0
 # define	ch0			P3_2
 # define	ch1			P3_3
-# define	LCD			P1
-# define	backlight		P1_3
-# define	RdWr			P1_1
-# define	RS			P1_0
-# define	E			P1_2
-# define	releh			P3_5
-# define	valvula			P2_1
+# define	LCD			P2
+# define	backlight		P2_3
+# define	RdWr			P2_1
+# define	RS			P2_0
+# define	E			P2_2
+# define	releh			P1_0
 /********************************************************/
 
 /*************** VARIÁVEIS EXTERNAS*********************/
-
-
-
-volatile char temp_msb,max_msb,min_msb,tcon_msb=0x01,rele_max_msb,rele_min_msb;
-volatile unsigned char temp_lsb,max_lsb,min_lsb,tcon_lsb=0x40,tdiff_lsb=0x10,rele_max_lsb,rele_min_lsb;
+volatile char tcon_msb=0x01,rele_max_msb,rele_min_msb;
+volatile unsigned char tcon_lsb=0x40,tdiff_lsb=0x10,rele_max_lsb,rele_min_lsb;
 __code char msg1[17]="Temp de Controle";
 __code char msg2[14]="Variacao (dt)";
 volatile __bit flag_backlight=0;
-
-/********************************************************/
-/***********Tabela para cálculo do CRC*******************/
-__code unsigned char crc_lut[256]={
-0,94, 188, 226, 97, 63, 221, 131, 194, 156, 126, 32, 163, 253, 31, 65,
-157, 195, 33, 127, 252, 162, 64, 30, 95, 1, 227, 189, 62, 96, 130, 220,
-35, 125, 159, 193, 66, 28, 254, 160, 225, 191, 93, 3, 128, 222, 60, 98,
-190, 224, 2, 92, 223, 129, 99, 61, 124, 34, 192, 158, 29, 67, 161, 255,
-70, 24, 250, 164, 39, 121, 155, 197, 132, 218, 56, 102, 229, 187, 89, 7,
-219, 133, 103, 57, 186, 228, 6, 88, 25, 71, 165, 251, 120, 38, 196, 154,
-101, 59, 217, 135, 4, 90, 184, 230, 167, 249, 27, 69, 198, 152, 122, 36,
-248, 166, 68, 26, 153, 199, 37, 123, 58, 100, 134, 216, 91, 5, 231, 185,
-140, 210, 48, 110, 237, 179, 81, 15, 78, 16, 242, 172, 47, 113, 147, 205,
-17, 79, 173, 243, 112, 46, 204, 146, 211, 141, 111, 49, 178, 236, 14, 80,
-175, 241, 19, 77, 206, 144, 114, 44, 109, 51, 209, 143, 12, 82, 176, 238,
-50, 108, 142, 208, 83, 13, 239, 177, 240, 174, 76, 18, 145, 207, 45, 115,
-202, 148, 118, 40, 171, 245, 23, 73, 8, 86, 180, 234, 105, 55, 213, 139,
-87, 9, 235, 181, 54, 104, 138, 212, 149, 203, 41, 119, 244, 170, 72, 22,
-233, 183, 85, 11, 136, 214, 52, 106, 43, 117, 151, 201, 74, 20, 246, 168,
-116, 42, 200, 150, 21, 75, 169, 247, 182, 232, 10, 84, 215, 137, 107, 53};
 /********************************************************/
 
 /**************funções de main.c*******************/
-void inicia_serial();
-void envia_serial(unsigned char *);
-void DelayUs(int );
-__bit rst_one_wire(void);
-__bit ReadBit(void);
-void WriteBit(char );
-unsigned char ReadByte(void);
-void WriteByte(unsigned char );
-unsigned char calcula_crc(unsigned char *,__bit);
 void bin2lcd(char ,unsigned char , char );
-void le_temperatura() __critical;
-void inicia_display();
 void atualiza_temp() __critical;
-void envia_lcd(unsigned char ) ;
-void layout_lcd();
-void atraso(unsigned char);
-void atraso_250us(unsigned char ) ;
 void atraso_long();
 void teclado0() __critical __interrupt 0;
 void teclado1() __critical __interrupt 2;
@@ -95,109 +59,9 @@ void set_temp();
 void set_temp_var();
 void atualiza_limites();
 void ctrl_releh();
-void inicia_ds18b20();
 /****************fim das funções*******************/
 
 
-void inicia_serial(){
-	SCON=0xD0;//inicia a comunicação serial no modo 3 (9 bits)
-	TMOD=0x22;//timer 1 no modo 2 - auto recarregável
-	TH1=0xfd;//valor para gerar a baud rate de 9600
-	TR1=1;//liga o timer 1
-	ES=1;//habilita a interrupção serial
-}
-
-void envia_serial(unsigned char *dados){
-	unsigned char hobbit;
-	for(hobbit=0;hobbit!=5;hobbit++){
-		A=0xff;//carrega no acumulador
-		TB8=P;//acerta o bit de paridade da transmissão
-		SBUF=0xff;//envia caractere
-		while(TI==0);//espera fim da transmissão
-		TI=0;
-	}
-	for(hobbit=0;hobbit!=9;hobbit++){
-		A=dados[hobbit];//carrega no acumulador
-		TB8=P;//acerta o bit de paridade da transmissão
-		SBUF=dados[hobbit];//envia caractere
-		while(TI==0);//espera fim da transmissão
-		TI=0;
-	}
-}
-
-void DelayUs(int us)
-{
-        int amon_ra;
-        for (amon_ra=0; amon_ra<us; amon_ra++);
-}
-
-__bit rst_one_wire(void)
-{
-        __bit presence;
-        DQ = 0;                 //pull DQ line low
-        DelayUs(40);    	// leave it low for about 490us
-        DQ = 1;                 // allow line to return high
-        DelayUs(20);    	// wait for presence 55 uS
-        presence = DQ;  	// get presence signal
-        DelayUs(25);    	// wait for end of timeslot 316 uS
-        return(presence);
-}// 0=presence, 1 = no part
-
-__bit ReadBit(void)
-{
-        unsigned char zeus=0;
-        DQ = 0;        		// pull DQ low to start timeslot
-        DQ=1;
-        for (zeus=0; zeus<1; zeus++); 	// delay 17 us from start of timeslot
-        return(DQ); 		// return value of DQ line
-}
-
-void WriteBit(char Dbit)
-{
-    	DQ=0;
-        DQ = Dbit ? 1:0;
-        DelayUs(5);         	// delay about 39 uS
-        DQ = 1;
-}
-
-unsigned char ReadByte(void)
-{
-        unsigned char horus;
-        unsigned char Din = 0;
-        for (horus=0;horus!=8;horus++)
-        {
-                Din|=ReadBit()? 0x01<<horus:Din;
-                DelayUs(8);
-        }
-        return(Din);
-}
-
-void WriteByte(unsigned char Dout)
-{
-        unsigned char isis;
-        for (isis=0; isis!=8; isis++) 		// writes byte, one bit at a time
-        {
-                WriteBit(Dout&0x1);	// write bit in temp into
-                Dout = Dout >> 1;
-        }
-        DelayUs(6);
-}
-
-unsigned char calcula_crc(unsigned char *dado,__bit tipo){
-	unsigned char joe,tamanho;
-	unsigned char crc=0,crc_index;
-	if(tipo){	//se tipo diferente de zero, faz crc do scratchpad
-		tamanho=9;
-	}		//se tipo igual a zero, faz crc da ROM
-	else{
-		tamanho=8;
-	}
-	for(joe=0;joe!=tamanho;joe++){//realiza oito iterações
-		crc_index=crc^dado[joe];//o índice do crc é uma XOR com o dado
-		crc=crc_lut[crc_index];//novo valor do crc atribuído
-	}
-	return crc;//se tudo deu certo, o valor do crc é zero
-}
 
 void bin2lcd(char msb,unsigned char lsb, char lcd_add)
 {
@@ -261,61 +125,6 @@ void bin2lcd(char msb,unsigned char lsb, char lcd_add)
 	envia_lcd(atual[3]);
 }
 
-void le_temperatura() __critical{
-	unsigned char scratchpad[9];//guarda os 9 bytes do scrathpad(memória de rascunho)
-	unsigned char pipoca;
-
-	rst_one_wire();
-	//WriteByte(0xCC);//SKIP ROM, só serve pra um único termômetro
-	//WriteByte(0x4E);//WRITE SCRATCHPAD
-	//WriteByte(0x00);//ESCREVE NO TH
-	//WriteByte(0x00);//ESCREVE NO TL
-	//WriteByte(0x1F);//CONFIGURA RESOLUÇÃO 9 bits
-	//com essa seção comentada, a resolução fica em 12bits
-	//rst_one_wire();
-	WriteByte(0xCC);//SKIP ROM, só serve pra um único termômetro
-	WriteByte(0x44);//start conversion
-	atraso_250us (0x70);//0x3C espera converter temperatura
-	//while(!DQ);//espera converter temperatura - só serve para alimentação não parasita
-	do{		//lê até achar um valor válido
-		rst_one_wire();
-		WriteByte(0xCC);//SKIP ROM, só serve pra um único termômetro
-		WriteByte(0xBE);//READ SCRATCHPAD
-		for(pipoca=0;pipoca!=9;pipoca++){
-			scratchpad[pipoca]=ReadByte();
-		}
-	} while(calcula_crc(scratchpad,1));
-	temp_msb=scratchpad[1];//bit mais significativo(de sinal)
-	//P0=temp_msb;
-	temp_lsb=scratchpad[0];//temperatura
-	//P0=temp_lsb;
-	envia_serial(scratchpad);//manda os dados do sensor pela serial(onde está o transmissor RF)
-}
-
-void inicia_display()
-{
-	const unsigned char instr[]={0x06,0x0C,0x28,0x01};
-	unsigned char i,j;
-	RS=RdWr=E=0;
-	for(i=0;i!=120;i++){		//gera um atraso de 15ms de inicialização
-		atraso(250);
-		atraso(250);
-	}
-	E=1;
-	LCD=0x24;			//envia comando para operação em 4 bits
-	E=0;
-	for(j=0;j!=20;j++){		//gera um atraso de 5ms de inicialização
-		atraso(250);
-		atraso(250);
-	}
-	for(i=0;i!=4;i++){	//envia as instruções de inicialização
-		envia_lcd(instr[i]);
-		for(j=0;j!=20;j++){	//gera um atraso de 5ms de inicialização
-			atraso(250);
-		}
-	}
-}								// Fim de inicia_display
-
 void atualiza_temp() __critical{
 //atualiza temperatura atual
 	bin2lcd(temp_msb,temp_lsb,0x85);
@@ -346,72 +155,6 @@ void atualiza_temp() __critical{
 		bin2lcd(min_msb,min_lsb,0xC2);
 	}
 }
-
-void reset_lcd(){
-	unsigned char j;
-	RS=RdWr=0;
-	E=1;
-	//LCD=0x04;
-	LCD=(0x0f&LCD);//máscara para os bits de controle
-	E=0;
-	E=1;
-	//LCD=0x14;
-	LCD=(0x0f&LCD)|(0x10);//máscara para os bits de controle
-	E=0;
-	for(j=0;j!=8;j++){	//gera um atraso de 2ms de inicialização
-		atraso(250);
-	}
-}
-
-void envia_lcd(unsigned char letra)
-{						// Inicia função escreve_lcd
-	E=1;
-	LCD=(0x0f&LCD)|(letra&0xf0);//máscara para os bits de controle
-	E=0;
-	letra<<=4;//faz o swap dos nibbles
-	E=1;
-	LCD=(0x0f&LCD)|(letra&0xf0);//máscara para os bits de controle
-	E=0;
-	atraso(250);//espera enviar o dado
-}						// Fim da Função escreve_lcd
-
-void layout_lcd()
-{
-	__code char fixos[2][11]={"Temp:","L:     /H:"};//fixos[2][caracteres+1]
-	char letra;
-	reset_lcd();
-	RS=0;
-	envia_lcd(0x80);
-	RS=1;
-	for(letra=0;letra!=5;letra++){//envia linha superior
-		envia_lcd(fixos[0][letra]);
-	}
-	RS=0;
-	envia_lcd(0xC0);
-	RS=1;
-	for(letra=0;letra!=10;letra++){//envia linha inferior
-		envia_lcd(fixos[1][letra]);
-	}
-}// fim primeira impressao
-
-void atraso(unsigned char tempo){
-	//essa rotina não é recomendada para tempos de menos que 30us(22us na verdade, massss....)
-	//as instruções a seguir corrigem o offset da função
-	tempo-=15;	//1us
-	tempo/=6;	//8us
-	//cada laço while demora 6us
-	while(tempo){	//enquanto o tempo em us não for zero
-		--tempo;//decrementa a cada ciclo do laço while
-	}
-}
-
-void atraso_250us(unsigned char vezes)	// 125us para 24MHz
-{						// Inicio da Função atraso_display
-		while(vezes){			// Espera o n* de vezes de Estouro zerar
-			atraso(0xff);
-			--vezes;		// Desconta do número de vezes
-		}
-}						// Fim da funçao atraso_display
 
 void atraso_long(){
 	unsigned char joe;
@@ -674,6 +417,8 @@ if(((tdiff_lsb&0x0f)==0x02)||((tdiff_lsb&0x0f)==0x05)||((tdiff_lsb&0x0f)==0x07)|
 						}
 						indio=0;//reseta o contador de espera
 						//break;
+						//atualiza temperatura de controle no LC
+						bin2lcd(0x00,tdiff_lsb,0xC5);//bem no meio da segunda linha
 					}
 					if(!ch1){//se apertar
 						if(tdiff_lsb<0xf0){//trava em +15,0
@@ -694,14 +439,14 @@ if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)|
 						}
 						indio=0;//reseta o contador de espera
 						//break;
+						//atualiza temperatura de controle no LC
+						bin2lcd(0x00,tdiff_lsb,0xC5);//bem no meio da segunda linha
 					}
 					atualiza_limites();
 					//É importante que o IF abaixo leve em conta valores maiores que +123 e menores que -53,
 					//já que alguns valores decimais de tdiff são ignorados
 					if(((rele_min_msb==-4)&&(rele_min_lsb<0xB0))||((rele_max_msb==0x07)&&(rele_max_lsb>0xB0))){
 						tdiff_lsb=anterior;
-						//atualiza temperatura de controle no LC
-						bin2lcd(0x00,tdiff_lsb,0xC5);//bem no meio da segunda linha
 					}
 					for(oca=0;oca!=cocar;oca++){//atraso do debounce
 						atraso_250us(0xff);
@@ -764,25 +509,9 @@ void ctrl_releh(){//ativa e desativa o relé do compressor
 	}
 }
 
-void inicia_ds18b20(){
-	while(1){	//lê até receber valor válido
-		le_temperatura();
-		if(temp_msb!=5){
-			if(temp_lsb!=0x50){
-				//poderia ser return, mas fiz com break pensando em outras funcionalidades
-				min_msb=max_msb=temp_msb;//inicializa valores com a primeira leitura
-				min_lsb=max_lsb=temp_lsb;
-				break;//quando para de receber +85 graus sai da rotina
-			}
-		}
-	}
-}
-
-
-
 
 void main(){
-	releh=0; valvula=0;//começa com as saídas de controle desligadas
+	releh=0;// valvula=0;//começa com as saídas de controle desligadas
 	inicia_serial();
 	inicia_display();
 	layout_lcd();
