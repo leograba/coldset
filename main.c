@@ -3,8 +3,8 @@
 
 /*********DEFINIÇÃO DOS PORTS E CONSTANTES**************/
 // ports
-# define	DQ			P3_1
-# define	DQ1			P3_0
+# define	DQ			P3_4
+//# define	DQ1			P3_0
 # define	ch0			P3_2
 # define	ch1			P3_3
 # define	LCD			P1
@@ -12,7 +12,7 @@
 # define	RdWr			P1_1
 # define	RS			P1_0
 # define	E			P1_2
-# define	releh			P2_0
+# define	releh			P3_5
 # define	valvula			P2_1
 /********************************************************/
 
@@ -20,8 +20,8 @@
 
 
 
-char temp_msb,max_msb,min_msb,tcon_msb=0x01,rele_max_msb,rele_min_msb;
-unsigned char temp_lsb,max_lsb,min_lsb,tcon_lsb=0x40,tdiff_lsb=0x10,rele_max_lsb,rele_min_lsb;
+volatile char temp_msb,max_msb,min_msb,tcon_msb=0x01,rele_max_msb,rele_min_msb;
+volatile unsigned char temp_lsb,max_lsb,min_lsb,tcon_lsb=0x40,tdiff_lsb=0x10,rele_max_lsb,rele_min_lsb;
 __code char msg1[17]="Temp de Controle";
 __code char msg2[14]="Variacao (dt)";
 volatile __bit flag_backlight=0;
@@ -48,6 +48,8 @@ __code unsigned char crc_lut[256]={
 /********************************************************/
 
 /**************funções de main.c*******************/
+void inicia_serial();
+void envia_serial(unsigned char []);
 void DelayUs(int );
 __bit rst_one_wire(void);
 __bit ReadBit(void);
@@ -74,6 +76,32 @@ void ctrl_releh();
 void inicia_ds18b20();
 /****************fim das funções*******************/
 
+
+void inicia_serial(){
+	SCON=0xD0;//inicia a comunicação serial no modo 3 (9 bits)
+	TMOD=0x22;//timer 1 no modo 2 - auto recarregável
+	TH1=0xfd;//valor para gerar a baud rate de 9600
+	TR1=1;//liga o timer 1
+	ES=1;//habilita a interrupção serial
+}
+
+void envia_serial(unsigned char dados[9]){
+	unsigned char hobbit;
+	for(hobbit=0;hobbit!=4;hobbit++){
+		A=0xff;//carrega no acumulador
+		TB8=P;//acerta o bit de paridade da transmissão
+		SBUF=0xff;//envia caractere
+		while(TI==0);//espera fim da transmissão
+		TI=0;
+	}
+	for(hobbit=0;hobbit!=9;hobbit++){
+		A=dados[hobbit];//carrega no acumulador
+		TB8=P;//acerta o bit de paridade da transmissão
+		SBUF=dados[hobbit];//envia caractere
+		while(TI==0);//espera fim da transmissão
+		TI=0;
+	}
+}
 
 void DelayUs(int us)
 {
@@ -212,7 +240,7 @@ void bin2lcd(char msb,unsigned char lsb, char lcd_add)
 }
 
 void le_temperatura() __critical{
-	unsigned char scratchpad[10];//guarda os 9 bytes do scrathpad(memória de rascunho)
+	unsigned char scratchpad[9];//guarda os 9 bytes do scrathpad(memória de rascunho)
 	unsigned char pipoca;
 
 	rst_one_wire();
@@ -239,6 +267,7 @@ void le_temperatura() __critical{
 	//P0=temp_msb;
 	temp_lsb=scratchpad[0];//temperatura
 	//P0=temp_lsb;
+	envia_serial(scratchpad);//manda os dados do sensor pela serial(onde está o transmissor RF)
 }
 
 void inicia_display()
@@ -392,13 +421,13 @@ void select_mode(__bit ctrl) __critical{//verifica em qual ajuste entrar, ou se 
 	__code char status1[6]="Tcon:";
 	__code char status2[7]="Tdiff:";
 	backlight=1;	//liga o backlight do lcd
-	TMOD=(TMOD&0x0f)|0x10;//timer 1 no modo 16 bits
+	TMOD=(TMOD&0xf0)|0x01;//timer 0 no modo 16 bits
 	for(kaes=0;kaes!=30;kaes++){//pra entrar no modo configuração de temp, tem que segurar por 2 segundos
-		TH1=0x00;//conta o máximo possível
-		TL1=0x00;
-		TR1=1;//inicia contagem do timer 0
+		TH0=0x00;//conta o máximo possível
+		TL0=0x00;
+		TR0=1;//inicia contagem do timer 0
 		if(!ctrl){//se int veio da tecla 0
-			while(!TF1){
+			while(!TF0){
 				if(ch0){//se soltar o push button já era muleke!
 					reset_lcd();//reseta display
 					RS=1;
@@ -424,7 +453,7 @@ void select_mode(__bit ctrl) __critical{//verifica em qual ajuste entrar, ou se 
 			}
 		}
 		else if(ctrl){//se int veio da tecla 1
-			while(!TF1){
+			while(!TF0){
 				if(ch1){//se soltar o push button já era muleke!
 					reset_lcd();//reseta display
 					RS=1;
@@ -449,8 +478,8 @@ void select_mode(__bit ctrl) __critical{//verifica em qual ajuste entrar, ou se 
 				}
 			}
 		}
-		TF1=0;
-		TR1=0;
+		TF0=0;
+		TR0=0;
 	}//se passou daqui, entrou no modo configura temperatura
 	reset_lcd();//reseta display
 	RS=1;
@@ -458,11 +487,11 @@ void select_mode(__bit ctrl) __critical{//verifica em qual ajuste entrar, ou se 
 		envia_lcd(msg1[letra]);
 	}
 	for(kaes=0;kaes!=90;kaes++){//pra entrar no modo configuração tem que segurar por 8 segundos
-		TH1=0x00;//conta o máximo possível
-		TL1=0x00;
-		TR1=1;//inicia contagem do timer 0
+		TH0=0x00;//conta o máximo possível
+		TL0=0x00;
+		TR0=1;//inicia contagem do timer 0
 		if(!ctrl){//se int veio da tecla 0
-			while(!TF1){
+			while(!TF0){
 				if(ch0){//se soltar o push button configura set_temp
 					set_temp();
 					return;
@@ -470,15 +499,15 @@ void select_mode(__bit ctrl) __critical{//verifica em qual ajuste entrar, ou se 
 			}
 		}
 		else if(ctrl){//se int veio da tecla 1
-			while(!TF1){
+			while(!TF0){
 				if(ch1){//se soltar o push button configura set_temp
 					set_temp();
 					return;
 				}
 			}
 		}
-		TF1=0;
-		TR1=0;
+		TF0=0;
+		TR0=0;
 	}//se passou daqui, entrou no modo configura variação de temp
 	reset_lcd();//reseta display
 	RS=1;
@@ -499,10 +528,10 @@ void set_temp(){//seta temperatura de controle
 	unsigned char iguana,kavalo,lhama=20,macaco=4;
 	__bit test=0;
 	//TMOD=(TMOD&0x0f)|0x10;//timer 1 no modo 16 bits
-	TH1=0x00;//conta o máximo possível
-	TL1=0x00;
-	TF1=0;
-	TR1=1;
+	TH0=0x00;//conta o máximo possível
+	TL0=0x00;
+	TF0=0;
+	TR0=1;
 	while(1){
 		for(iguana=0;iguana!=40;iguana++){//espera pelo menos um tempo pra apertar alguma tecla
 		/*para 250 repetições:
@@ -511,8 +540,8 @@ void set_temp(){//seta temperatura de controle
 		porém segundo meus cálculos, deveria ser 65535us por laço
 		portanto a espera é de 16,4s - resultado compatível com a
 		simulação no Proteus*/
-			TF1=0;
-			while(!TF1){
+			TF0=0;
+			while(!TF0){
 				//atualiza temperatura de controle no LCD
 				bin2lcd(tcon_msb,tcon_lsb,0xC5);//bem no meio da segunda linha
 				if(!ch0||!ch1){
@@ -581,7 +610,7 @@ void set_temp(){//seta temperatura de controle
 			layout_lcd();
 			bin2lcd(min_msb,min_lsb,0xC2);
 			bin2lcd(max_msb,max_lsb,0xCA);
-			TR1=0;//desliga o timer
+			TR0=0;//desliga o timer
 			return;
 		}
 		test=0;//se foi pressionada, zera para fazer o teste novamente
@@ -594,13 +623,13 @@ void set_temp_var(){//ajusta a variação da temperatura de controle
 	unsigned char anterior;
 	__bit test=0;
 	//TMOD=(TMOD&0x0f)|0x10;//timer 1 no modo 16 bits
-	TH1=0x00;//conta o máximo possível
-	TL1=0x00;
-	TR1=1;
+	TH0=0x00;//conta o máximo possível
+	TL0=0x00;
+	TR0=1;
 	while(1){
 		for(indio=0;indio!=40;indio++){//espera pelo menos um tempo pra apertar alguma tecla
-			TF1=0;
-			while(!TF1){
+			TF0=0;
+			while(!TF0){
 				//atualiza temperatura de controle no LC
 				bin2lcd(0x00,tdiff_lsb,0xC5);//bem no meio da segunda linha
 				if(!ch0||!ch1){
@@ -666,7 +695,7 @@ if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)|
 			layout_lcd();
 			bin2lcd(min_msb,min_lsb,0xC2);
 			bin2lcd(max_msb,max_lsb,0xCA);
-			TR1=0;//desliga o contador
+			TR0=0;//desliga o contador
 			return;
 		}
 		test=0;//se foi pressionada, zera para fazer o teste novamente
@@ -730,6 +759,7 @@ void inicia_ds18b20(){
 
 void main(){
 	releh=0; valvula=0;//começa com as saídas de controle desligadas
+	inicia_serial();
 	inicia_display();
 	layout_lcd();
 	inicia_ds18b20();
