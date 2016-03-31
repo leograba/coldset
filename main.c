@@ -3,12 +3,12 @@
 
 /*********DEFINIÇÃO DOS PORTS E CONSTANTES**************/
 // ports
-# define    DQ          P2_7
+# define    DQ          P3_1
 # define    LCD_dados       P1
 # define    backlight       P3_4
-# define    RdWr            P3_6
-# define    RS          P3_5
-# define    E           P3_7
+# define    RdWr            P2_6
+# define    RS          P2_5
+# define    E           P2_7
 /********************************************************/
 
 /*************** VARIÁVEIS EXTERNAS*********************/
@@ -49,11 +49,11 @@ bit ResetDS1820(void)
 {
         bit presence;
         DQ = 0;                 //pull DQ line low
-        DelayUs(40);            // leave it low for about 490us
+        DelayUs(40);    // leave it low for about 490us
         DQ = 1;                 // allow line to return high
-        DelayUs(20);            // wait for presence 55 uS
-        presence = DQ;          // get presence signal
-        DelayUs(25);            // wait for end of timeslot 316 uS
+        DelayUs(20);     // wait for presence 55 uS
+        presence = DQ;  // get presence signal
+        DelayUs(25);    // wait for end of timeslot 316 uS
         return(presence);
 }       // 0=presence, 1 = no part
 
@@ -63,10 +63,10 @@ bit ResetDS1820(void)
 bit ReadBit(void)
 {
         unsigned char i=0;
-        DQ = 0;                 // pull DQ low to start timeslot
+        DQ = 0;         // pull DQ low to start timeslot
         DQ=1;
-        for (i=0; i<1; i++);    // delay 17 us from start of timeslot
-        return(DQ);             // return value of DQ line
+        for (i=0; i<1; i++); // delay 17 us from start of timeslot
+        return(DQ); // return value of DQ line
 }
 
 //-----------------------------------------
@@ -77,7 +77,7 @@ void WriteBit(bit Dbit)
         unsigned char i=0;
     DQ=0;
         DQ = Dbit ? 1:0;
-        DelayUs(5);             // delay about 39 uS
+        DelayUs(5);                     // delay about 39 uS
         DQ = 1;
 }
 
@@ -102,9 +102,9 @@ unsigned char ReadByte(void)
 void WriteByte(unsigned char Dout)
 {
         unsigned char i;
-        for (i=0; i<8; i++)                 // writes byte, one bit at a time
+        for (i=0; i<8; i++) // writes byte, one bit at a time
         {
-                WriteBit((bit)(Dout & 0x1));// write bit in temp into
+                WriteBit((bit)(Dout & 0x1));            // write bit in temp into
                 Dout = Dout >> 1;
         }
         DelayUs(5);
@@ -194,7 +194,7 @@ void inicia_display()
     for(nvetor=0;nvetor<8;nvetor++){                            // Laço que controla o número do vetor que será lido
         E=1;                                                    // Seta o Enable para a gravação ser possível
         atraso_250us(0x08);                                     // Espera 5ms
-        LCD_dados=start[nvetor];                                // Envia ao barramento de dados os valores de Inicialização
+        LCD_dados=start[nvetor];                                        // Envia ao barramento de dados os valores de Inicialização
         atraso_250us(0x08);
         E=0;                                    // Reseta o Enable para confirmar o recebimento
         atraso_250us(0x08);                     // Espera 5ms
