@@ -21,10 +21,9 @@ char temp_atual[4]={'+', '0','0','0'};
 //char temp_max[4]={'+','0','0','0'};
 //unsigned char cont='0';
 //unsigned char temperatura,minima,maxima;
-char temp_msb,max_msb,min_msb;
-volatile char tcon_msb;
-unsigned char temp_lsb,max_lsb,min_lsb;
-volatile unsigned char tcon_lsb;
+char temp_msb,max_msb,min_msb,tcon_msb,tdiff_msb;
+unsigned char temp_lsb,max_lsb,min_lsb,tcon_lsb,tdiff_lsb;
+volatile char int_ctrl=0;
 
 
 /********************************************************/
@@ -42,7 +41,10 @@ void atualiza_temp();
 void envia_lcd(char );
 void primeira_impressao();
 void atraso_250us(char );
-void teclado() __interrupt 0;
+void teclado0() __critical __interrupt 0;
+void teclado1() __critical __interrupt 2;
+void set_temp();
+void set_temp_var();
 /****************fim das funções*******************/
 
 
@@ -150,7 +152,6 @@ void le_temperatura() __critical{
     //P0=temp_msb;
     temp_lsb=t_lsb=scratchpad[0];//temperatura
     //P0=temp_lsb;
-    //A comunicação com o sensor está funcionando no simulador PROTEUS ISIS
     if(!(t_msb&0xF0)){//se é uma temperatura positiva
         temp_atual[0]='+';
         //define o dígito decimal
@@ -319,26 +320,132 @@ void atraso_250us(char vezes)   // 125us para 24MHz
         }
 }                               // Fim da funçao atraso_display
 
-void teclado() __critical __interrupt 0 {//caso chave 0 seja acionada
-    char msg[2][17]={"Temp de Controle","Variacao"};
+void teclado0() __critical __interrupt 0 {//caso chave 0 seja acionada
     unsigned char i;
-    EA=0;//desliga interrupções
-    backlight=1;//liga o backlight do LCD
-    //atraso_250us(2);//debounce pouco efetivo, pois não segue com o programa
+    backlight=1;
     TMOD=0x01;//timer 0 no modo 16 bits
-    for(i=0;i<20;i++){//pra entrar no modo configuração, tem que segurar por 2 segundos
+    for(i=0;i<31;i++){//pra entrar no modo configuração de temp, tem que segurar por 2 segundos
         TH0=0x00;//conta o máximo possível
         TL0=0x00;
         TR0=1;//inicia contagem do timer 0
-        while(!TF0)
-            if(ch0)//se soltar o push button já era muleke!
+        while(!TF0){
+            if(ch0){//se soltar o push button já era muleke!
                 return;//não entra no modo configuração
+            }
+        }
+        TF0=0;
         TR0=0;
-    }//se passou daqui, entrou no modo configuração
+    }//se passou daqui, entrou no modo configura temperatura
+    int_ctrl=1;//indica ajuste de temperatura de controle
+    for(i=0;i<92;i++){//pra entrar no modo configuração, tem que segurar por 8 segundos
+        TH0=0x00;//conta o máximo possível
+        TL0=0x00;
+        TR0=1;//inicia contagem do timer 0
+        while(!TF0){
+            if(ch0){//se soltar o push button já era muleke!
+                return;//não entra no modo configuração
+            }
+        }
+        TF0=0;
+        TR0=0;
+    }//se passou daqui, entrou no modo configura temperatura
+    int_ctrl=2;//indica ajuste de variação de temperatura de controle
+    while(!ch0);//só retorna quando soltar o botão
+}
+
+void teclado1() __critical __interrupt 2 {//caso chave 1 seja acionada
+    unsigned char i;
+    backlight=1;
+    TMOD=0x01;//timer 0 no modo 16 bits
+    for(i=0;i<31;i++){//pra entrar no modo configuração de temp, tem que segurar por 2 segundos
+        TH0=0x00;//conta o máximo possível
+        TL0=0x00;
+        TR0=1;//inicia contagem do timer 0
+        while(!TF0){
+            if(ch1){//se soltar o push button já era muleke!
+                return;//não entra no modo configuração
+            }
+        }
+        TF0=0;
+        TR0=0;
+    }//se passou daqui, entrou no modo configura temperatura
+    int_ctrl=1;//indica ajuste de temperatura de controle
+    for(i=0;i<92;i++){//pra entrar no modo configuração, tem que segurar por 8 segundos
+        TH0=0x00;//conta o máximo possível
+        TL0=0x00;
+        TR0=1;//inicia contagem do timer 0
+        while(!TF0){
+            if(ch1){//se soltar o push button já era muleke!
+                return;//não entra no modo configuração
+            }
+        }
+        TF0=0;
+        TR0=0;
+    }//se passou daqui, entrou no modo configura temperatura
+    int_ctrl=2;//indica ajuste de variação de temperatura de controle
+    while(!ch1);
+}
+
+void set_temp() __critical{//seta temperatura de controle
+    char msg[17]="Temp de Controle";
+    unsigned char letra;
+    unsigned char test=0,i;
     RS=0;
-    //envia_lcd(0x01);//reseta display
-    //envia_lcd(0x80);
+    envia_lcd(0x01);//reseta display
     RS=1;
+    for(letra=0;letra<17;letra++){//envia "Temp de Controle"
+        envia_lcd(msg[letra]);
+    }
+    TMOD=0x01;//timer 0 no modo 16 bits
+    TH0=0x00;//conta o máximo possível
+    TL0=0x00;
+    while(1){
+        for(i=0,test=0;i<31;i++){//2 segundos pra apertar uma tecla
+            while(!TF0){
+                if(ch0){
+                    test++;
+                    if(tcon_lsb>0){
+                        tcon_lsb-=8;//subtrai meio grau
+                    }
+                    else{
+                        tcon_lsb=0xf8;//se é 0 vai pro máximo
+                        tcon_msb--;//e subtrai um desse
+                    }
+                }
+                if(ch1){
+                    test++;
+                    if(tcon_lsb<0xff){
+                        tcon_lsb+=8;//soma meio grau
+                    }
+                    else{
+                        tcon_lsb=0x00;//se é máximo vai pro zero
+                        tcon_msb++;//e soma um desse
+                    }
+                }
+                //atualiza temperatura de controle no LCD
+                
+            }
+            TF0=0;
+            TR0=0;
+        }
+        if(!test){//se nenhuma tecla pressionada em 2 segundos, sai
+            return;
+        }
+        test=0;//se foi pressionada, zera para fazer o teste novamente
+    }
+}
+
+void set_temp_var() __critical{
+    char msg[12]="Var de Temp";
+    unsigned char letra;
+    RS=0;
+    envia_lcd(0x01);//reseta display
+    RS=1;
+    for(letra=0;letra<12;letra++){//envia "Var de Temp"
+        envia_lcd(msg[letra]);
+    }
+    //laço infinito de teste
+    while(1);
 }
 
 
@@ -350,22 +457,24 @@ void main(){
     for(i=0;i<0x25;i++){
     le_temperatura();//espera estabilizar
     }
-    //if(temp_msb<1) zero++;
     min_msb=max_msb=temp_msb;//inicializa valores com a primeira leitura
     min_lsb=max_lsb=temp_lsb;
-    IE=0x81;
+    IE=0x85;//ativa as interrupções externas \int0 e \int1
     //IT0=0;
     for(;;){//loop infinito
         atraso_250us(1);//atraso necessário para não dar problema com TH,
 //só não entendi qual o problema quando não tem esse atraso
 //Usando laço for, precisou de mais de 2 laços para fazer dar certo o atraso
-        //if(temp_msb<1) zero++;
         le_temperatura();
         atualiza_temp();
-        //RS=0;
-        //envia_lcd(0x8f);
-        //RS=1;
-        //envia_lcd(('0'+zero));
+        if(int_ctrl==1){
+            set_temp();
+            int_ctrl=0;
+        }
+        else if(int_ctrl==2){
+            set_temp_var();
+            int_ctrl=0;
+        }
     }
 }
 
