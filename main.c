@@ -7,11 +7,11 @@
 # define	DQ1			P3_0
 # define	ch0			P3_2
 # define	ch1			P3_3
-# define	LCD_dados		P1
-# define	backlight		P3_4
-# define	RdWr			P3_6
-# define	RS			P3_5
-# define	E			P3_7
+# define	LCD			P1
+# define	backlight		P1_3
+# define	RdWr			P1_1
+# define	RS			P1_0
+# define	E			P1_2
 # define	releh			P2_0
 # define	valvula			P2_1
 /********************************************************/
@@ -59,9 +59,8 @@ void bin2lcd(char ,unsigned char , char );
 void le_temperatura() __critical;
 void inicia_display();
 void atualiza_temp() __critical;
-void envia_lcd(char ) ;
+void envia_lcd(unsigned char ) ;
 void layout_lcd();
-void primeira_impressao();
 void atraso(unsigned char);
 void atraso_250us(unsigned char ) ;
 void atraso_long();
@@ -244,17 +243,24 @@ void le_temperatura() __critical{
 
 void inicia_display()
 {
-	char nvetor;						// Variavel que ira indicar o valor do vetor
-	__code char start[5]={0x38,0x0A,0x01,0x06,0x0C};	// Carrega os Vetores com os valores de inicialização
-	atraso_250us (0x3C);					// Gera um atraso de 15ms
-	RS=0; RdWr=0;						// Prepara para escrita de instrução
-	for(nvetor=0;nvetor!=5;nvetor++){			// Laço que controla o número do vetor que será lido
-		E=1;						// Seta o Enable para a gravação ser possível
-		LCD_dados=start[nvetor];			// Envia ao barramento de dados os valores de Inicialização
-		E=0;						// Reseta o Enable para confirmar o recebimento
-		atraso_250us(0x08);				// Espera 5ms
-	}							// Fim do For
-	RS=1;							// Prepara para escrita de dados no display
+	const unsigned char instr[]={0x06,0x0C,0x28,0x01};
+	unsigned char i,j;
+	RS=RdWr=E=0;
+	for(i=0;i!=60;i++){		//gera um atraso de 15ms de inicialização
+		atraso(250);
+	}
+	E=1;
+	LCD=0x24;			//envia comando para operação em 4 bits
+	E=0;
+	for(j=0;j!=20;j++){		//gera um atraso de 5ms de inicialização
+		atraso(250);
+	}
+	for(i=0;i!=4;i++){	//envia as instruções de inicialização
+		envia_lcd(instr[i]);
+		for(j=0;j!=20;j++){	//gera um atraso de 5ms de inicialização
+			atraso(250);
+		}
+	}
 }								// Fim de inicia_display
 
 void atualiza_temp() __critical{
@@ -281,27 +287,39 @@ void atualiza_temp() __critical{
 		bin2lcd(min_msb,min_lsb,0xC2);
 	}
 	else if((temp_msb==min_msb)&&(temp_lsb<min_lsb)){//se for menor, atualiza a mínima
-		//atualiza temperatura minima	
+		//atualiza temperatura minima
 		min_msb=temp_msb;
-		min_lsb=temp_lsb;	
+		min_lsb=temp_lsb;
 		bin2lcd(min_msb,min_lsb,0xC2);
 	}
 }
 
 void reset_lcd(){
-	RS=0;
-	E=1;				// Seta E do display
-	LCD_dados=0x01;			// Envia o dado para o display
-	E=0;				// Reseta o E para imprimir caracter
-	atraso_250us(8);		// 2ms para resetar
+	unsigned char j;
+	RS=RdWr=0;
+	E=1;
+	//LCD=0x04;
+	LCD=(0x0f&LCD);//máscara para os bits de controle
+	E=0;
+	E=1;
+	//LCD=0x14;
+	LCD=(0x0f&LCD)|(0x10);//máscara para os bits de controle
+	E=0;
+	for(j=0;j!=8;j++){	//gera um atraso de 2ms de inicialização
+		atraso(250);
+	}
 }
 
-void envia_lcd(char dado)
+void envia_lcd(unsigned char letra)
 {						// Inicia função escreve_lcd
-		E=1;				// Seta E do display
-		LCD_dados=dado;			// Envia o dado para o display
-		E=0;				// Reseta o E para imprimir caracter
-		atraso_250us(0x01);		// Ao menos 40us para envio do dado
+	E=1;
+	LCD=(0x0f&LCD)|(letra&0xf0);//máscara para os bits de controle
+	E=0;
+	letra<<=4;//faz o swap dos nibbles
+	E=1;
+	LCD=(0x0f&LCD)|(letra&0xf0);//máscara para os bits de controle
+	E=0;
+	atraso(250);//espera enviar o dado
 }						// Fim da Função escreve_lcd
 
 void layout_lcd()
