@@ -20,11 +20,11 @@
 
 
 
-char temp_msb,max_msb,min_msb,tcon_msb=0x01,tdiff_msb=0x00;
-unsigned char temp_lsb,max_lsb,min_lsb,tcon_lsb=0x40,tdiff_lsb=0x10;
+char temp_msb,max_msb,min_msb,tcon_msb=0x01,rele_max_msb,rele_min_msb;//tdiff_msb=0x00;
+unsigned char temp_lsb,max_lsb,min_lsb,tcon_lsb=0x40,tdiff_lsb=0x10,rele_max_lsb,rele_min_lsb;
 static const char msg1[17]="Temp de Controle";
 static const char msg2[14]="Variacao (dt)";
-unsigned char ctrl=0;
+unsigned volatile char ctrl=0;
 
 /********************************************************/
 
@@ -43,12 +43,15 @@ void envia_lcd(char ) ;
 void layout_lcd();
 void primeira_impressao();
 void atraso_250us(char ) ;
+void atraso_long();
 void teclado0() __critical __interrupt 0;
 void teclado1() __critical __interrupt 2;
 void select_mode() __critical;
 void set_temp() __critical;
 void set_temp_var() __critical;
+void atualiza_limites();
 void ctrl_releh();
+void inicia_ds18b20();
 /****************fim das funções*******************/
 
 
@@ -113,7 +116,7 @@ void WriteByte(unsigned char Dout)
 
 void bin2lcd(char msb,unsigned char lsb, char lcd_add)
 {
-	unsigned char tab[16]={'0','1','1','2','3','3','4','4','5','6','6','7','8','8','9','9'};
+	unsigned const char tab[16]={'0','1','1','2','3','3','4','4','5','6','6','7','8','8','9','9'};
 	unsigned char temperatura;
 	unsigned char atual[4];
 	if(!(msb&0xF0)){//se é uma temperatura positiva
@@ -187,7 +190,7 @@ void le_temperatura() __critical{
 	//ResetDS1820();
 	WriteByte(0xCC);//SKIP ROM, só serve pra um único termômetro
 	WriteByte(0x44);//start conversion
-	atraso_250us (0x70);//0x3C
+	atraso_250us (0x70);//0x3C espera converter temperatura
 	//while(!DQ);//espera converter temperatura - só serve para alimentação não parasita
 
 	ResetDS1820();
@@ -293,7 +296,16 @@ void atraso_250us(char vezes)	// 125us para 24MHz
 			vezes--;			// Desconta do número de vezes
 			TF0=0;				// Reseta o bit de Overflow
 		}
-}								// Fim da funçao atraso_display
+}							// Fim da funçao atraso_display
+
+void atraso_long(){
+	unsigned char i,j;
+	for(i=0;i!=0xff;i++){
+		for(j=0;j!=0xff;j++){//mantém backlight ligado por um tempo no layout padrão
+			atraso_250us(0xff);
+		}
+	}
+}
 
 void teclado0() __critical __interrupt 0 {//caso chave 0 seja acionada
 	ctrl=0x0f;
@@ -329,12 +341,8 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 					for(letra=0;letra!=6;letra++){
 						envia_lcd(status2[letra]);
 					}
-					bin2lcd(tcon_msb,tcon_lsb,0xC6);
-					for(i=0;i!=0xff;i++){
-						for(j=0;j!=0xff;j++){
-							atraso_250us(0xff);
-						}
-					}
+					bin2lcd(0x00,tdiff_lsb,0xC6);
+					atraso_long();
 					layout_lcd();
 					bin2lcd(min_msb,min_lsb,0xC2);
 					bin2lcd(max_msb,max_lsb,0xCA);
@@ -358,12 +366,8 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 					for(letra=0;letra!=6;letra++){
 						envia_lcd(status2[letra]);
 					}
-					bin2lcd(tcon_msb,tcon_lsb,0xC6);
-					for(i=0;i!=0xff;i++){
-						for(j=0;j!=0xff;j++){
-							atraso_250us(0xff);
-						}
-					}
+					bin2lcd(0x00,tdiff_lsb,0xC6);
+					atraso_long();
 					layout_lcd();
 					bin2lcd(min_msb,min_lsb,0xC2);
 					bin2lcd(max_msb,max_lsb,0xCA);
@@ -423,12 +427,6 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 void set_temp() __critical{//seta temperatura de controle
 	//unsigned char letra;
 	unsigned char test=0,i,j,k,l=60,m=10;
-	/*RS=0;
-	envia_lcd(0x01);//reseta display
-	RS=1;
-	for(letra=0;letra<17;letra++){//envia "Temp de Controle"
-		envia_lcd(msg1[letra]);
-	}*/
 	TMOD=0x01;//timer 0 no modo 16 bits
 	TH0=0x00;//conta o máximo possível
 	TL0=0x00;
@@ -451,9 +449,16 @@ void set_temp() __critical{//seta temperatura de controle
 							l-=m;//aumenta velocidade de decremento
 							if(m!=1)
 								m--;
-						if((tcon_msb==-4)&(tcon_lsb==0xD8)){
+						if((tcon_msb==-4)&&(tcon_lsb==0xD8)){
 							tcon_lsb+=8;//trava em -50 graus
 						}
+						atualiza_limites();
+						if((rele_min_msb==-4)&&(rele_min_lsb==0xA8)){
+							tcon_lsb+=8;//trava em tcon-tdiff=-53 graus
+						}
+						i=60;//reseta o contador de espera
+						//atualiza temperatura de controle no LCD
+						bin2lcd(tcon_msb,tcon_lsb,0xC5);//bem no meio da segunda linha
 					}
 					if(!ch1){//se apertar
 						test++;
@@ -468,9 +473,16 @@ void set_temp() __critical{//seta temperatura de controle
 							l-=m;//aumenta velocidade de incremento
 							if(m!=1)
 								m--;
-						if((tcon_msb==0x07)&(tcon_lsb==0x88)){
+						if((tcon_msb==0x07)&&(tcon_lsb==0x88)){
 							tcon_lsb-=8;//trava em +120 graus
 						}
+						atualiza_limites();
+						if((rele_max_msb==0x07)&&(rele_max_lsb==0xB8)){
+							tcon_lsb-=8;//trava em tcon+tdiff=+123 graus
+						}
+						i=60;//reseta o contador de espera
+						//atualiza temperatura de controle no LCD
+						bin2lcd(tcon_msb,tcon_lsb,0xC5);//bem no meio da segunda linha
 					}
 					for(k=0;k!=l;k++){
 						for(j=0;j!=0xff;j++){//debounce
@@ -502,12 +514,7 @@ void set_temp() __critical{//seta temperatura de controle
 void set_temp_var() __critical{//ajusta a variação da temperatura de controle
 	//unsigned char letra;
 	unsigned char test=0,i,j,k,l=60,m=10;
-	/*RS=0;
-	envia_lcd(0x01);//reseta display
-	RS=1;
-	for(letra=0;letra<12;letra++){//envia "Var de Temp"
-		envia_lcd(msg2[letra]);
-	}*/
+	unsigned char anterior;
 	TMOD=0x01;//timer 0 no modo 16 bits
 	TH0=0x00;//conta o máximo possível
 	TL0=0x00;
@@ -517,8 +524,9 @@ void set_temp_var() __critical{//ajusta a variação da temperatura de controle
 			TF0=0;
 			while(!TF0){
 				if(!ch0||!ch1){
+				anterior=tdiff_lsb;
+					test++;
 					if(!ch0){//se apertar
-						test++;
 						if(tdiff_lsb>0x08){//trava em 0,5 graus
 							
 if(((tdiff_lsb&0x0f)==0x02)||((tdiff_lsb&0x0f)==0x05)||((tdiff_lsb&0x0f)==0x07)||((tdiff_lsb&0x0f)==0x0A)||((tdiff_lsb&0x0f)==0x0D)||((tdiff_lsb&0x0f)==0x0F)){
@@ -526,19 +534,15 @@ if(((tdiff_lsb&0x0f)==0x02)||((tdiff_lsb&0x0f)==0x05)||((tdiff_lsb&0x0f)==0x07)|
 							}
 							else	tdiff_lsb--;
 						}
-						/*else{
-							tdiff_lsb=0x;//se é 0 vai pro máximo
-							tdiff_msb--;//e subtrai um desse
-						}*/
 						if(l!=0){
 							l-=m;//aumenta velocidade de decremento
 							if(m!=1)
 								m--;
 						}
+						i=60;//reseta o contador de espera
 						//break;
 					}
 					if(!ch1){//se apertar
-						test++;
 						if(tdiff_lsb<0xf0){//trava em +15,0
 							
 if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)||((tdiff_lsb&0x0f)==0x08)||((tdiff_lsb&0x0f)==0x0B)||((tdiff_lsb&0x0f)==0x0D)){
@@ -555,7 +559,16 @@ if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)|
 							if(m!=1)
 								m--;
 						}
+						i=60;//reseta o contador de espera
 						//break;
+					}
+					atualiza_limites();
+					//É importante que o IF abaixo leve em conta valores maiores que +123 e menores que -53,
+					//já que alguns valores decimais de tdiff são ignorados
+					if(((rele_min_msb==-4)&&(rele_min_lsb<0xB0))||((rele_max_msb==0x07)&&(rele_max_lsb>0xB0))){
+						tdiff_lsb=anterior;
+						//atualiza temperatura de controle no LC
+						bin2lcd(0x00,tdiff_lsb,0xC5);//bem no meio da segunda linha
 					}
 					for(k=0;k!=l;k++){
 						for(j=0;j!=0xff;j++){//debounce
@@ -569,8 +582,8 @@ if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)|
 					m=10;
 				}
 			}
-			//atualiza temperatura de controle no LCD
-			bin2lcd(tdiff_msb,tdiff_lsb,0xC5);//bem no meio da segunda linha
+			//atualiza temperatura de controle no LC
+			bin2lcd(0x00,tdiff_lsb,0xC5);//bem no meio da segunda linha
 		}
 		if(!test){//se nenhuma tecla pressionada em 2 segundos, sai
 			RS=0;//volta o lcd para a condição normal e imprime Th e Tl atuais
@@ -584,53 +597,65 @@ if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)|
 	}
 }
 
-void ctrl_releh(){//ativa e desativa o relé do compressor
-//A faixa de controle está entre tcon-tdiff e tcon+tdiff, ou seja, C=(tmin,tmax)
-	char tmin_msb,tmax_msb;
-	unsigned char tmin_lsb,tmax_lsb;
-	tmin_msb=tmax_msb=tcon_msb;//pois tdiff_msb é sempre igual a zero
+void atualiza_limites(){
+	rele_min_msb=rele_max_msb=tcon_msb;//pois tdiff_msb é sempre igual a zero - nem existe mais
 	CY=0;//flag de carry zerada
-	tmin_lsb=tcon_lsb-tdiff_lsb;//faz a subtração para tmin
+	rele_min_lsb=tcon_lsb-tdiff_lsb;//faz a subtração para tmin
 	if(CY){//se setou carry, resultado negativo
-		tmin_msb--;
+		rele_min_msb--;
 	}
 	CY=0;
-	tmax_lsb=tcon_lsb+tdiff_lsb;//faz a soma para tmax
+	rele_max_lsb=tcon_lsb+tdiff_lsb;//faz a soma para tmax
 	if(CY){//se setou carry, estouro de resultado
-		tmax_msb++;
+		rele_max_msb++;
 	}
+}
+
+void ctrl_releh(){//ativa e desativa o relé do compressor
+//A histerese está entre tcon-tdiff e tcon+tdiff, ou seja, H=(tmin,tmax)=2*tdiff
+	atualiza_limites();
 //Agora faz a comparação para decidir se aciona o relé
-	if(temp_msb>tmax_msb){//se ultrapassa máxima liga o relé
+	if(temp_msb>rele_max_msb){//se ultrapassa máxima liga o relé
 		releh=1;
 		return;
 	}
-	else if(temp_msb==tmax_msb){
-		if(temp_lsb>tmax_lsb){
+	else if(temp_msb==rele_max_msb){
+		if(temp_lsb>rele_max_lsb){
 			releh=1;
 			return;
 		}
 	}
-	if(temp_msb<tmin_msb){//se ultrapassa minima desliga o relé
+	if(temp_msb<rele_min_msb){//se ultrapassa minima desliga o relé
 		releh=0;
 	}
-	else if(temp_msb==tmin_msb){
-		if(temp_lsb<tmin_lsb){
+	else if(temp_msb==rele_min_msb){
+		if(temp_lsb<rele_min_lsb){
 			releh=0;
+		}
+	}
+}
+
+void inicia_ds18b20(){
+	while(1){
+		le_temperatura();
+		if(temp_msb!=5){
+			if(temp_lsb!=0x50){
+				//poderia ser return, mas fiz com break pensando em outras funcionalidades
+				min_msb=max_msb=temp_msb;//inicializa valores com a primeira leitura
+				min_lsb=max_lsb=temp_lsb;
+				break;//quando para de receber +85 graus sai da rotina
+			}
 		}
 	}
 }
 
 
 
+
 void main(){
-	unsigned char i;
 	inicia_display();
 	layout_lcd();
-	for(i=0;i<0x10;i++){
-		le_temperatura();//espera estabilizar
-	}
-	min_msb=max_msb=temp_msb;//inicializa valores com a primeira leitura
-	min_lsb=max_lsb=temp_lsb;
+	inicia_ds18b20();
 	IE=0x85;//ativa as interrupções externas \int0 e \int1
 	backlight=0;
 	for(;;){//loop infinito
@@ -641,6 +666,7 @@ void main(){
 			backlight=1;
 			select_mode();
 			ctrl=0;
+			atraso_long();//deixa o backlight ligado no layout padrão por um tempo
 			backlight=0;
 		}
 	}
