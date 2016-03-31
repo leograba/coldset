@@ -1,5 +1,27 @@
+/**********Parâmetros do Sistema*************************/
+/**
+Microcontrolador: AT89S52
+Frequência ideal de operação: f=12Mhz
+Ainda assim, sensor DS18B20 e LCD funcionando com f=24Mhz na prática.
+Compilador usado: SDCC 3.3.0 #8604 (may/11/2013)
+IDE usada: MCU 8051 IDE v1.4.7
+Diretivas do SDCC:sdcc -mmcs51 --iram-size 256 --xram-size 0 --code-size 8192  --nooverlay --noinduction --verbose --debug --opt-code-speed -V --std-sdcc89 
+--model-small   "main.c"
+Comprimento de Tabulação (Tab Width):1 tab = 8 espaços (1tab = 8 spaces)
+**/
+/***********Descrição do Sistema***********************/
+/**
+Este sistema lê periodicamente a temperatura a partir de um sensor DS18B20 e
+mostra esta temperatura em um display de LCD 16x2 HD44780 compatível. O display também mostra
+a máxima e a mínima temperatura registradas desde que o circuito foi ligado ou o último reset.
+Com base na temperatura lida, um relé de 5V é ligado ou desligado, de modo a controlar a temperatura
+de uma geladeira.
+Duas chaves pushbutton mostram/ajustam as configurações do controle de temperatura.
+Os dados do sensor de temperatura são enviados através de um módulo emissor de RF conectado
+à porta serial para outro microcontrolador, para análise posterior e monitoramento remoto.
+**/
 
-#include <at89s8252.h>
+#include <at89s8252.h> //compatível com AT89S52
 
 /*********DEFINIÇÃO DOS PORTS E CONSTANTES**************/
 // ports
@@ -49,14 +71,14 @@ __code unsigned char crc_lut[256]={
 
 /**************funções de main.c*******************/
 void inicia_serial();
-void envia_serial(unsigned char []);
+void envia_serial(unsigned char *);
 void DelayUs(int );
 __bit rst_one_wire(void);
 __bit ReadBit(void);
 void WriteBit(char );
 unsigned char ReadByte(void);
 void WriteByte(unsigned char );
-unsigned char calcula_crc(unsigned char [],__bit);
+unsigned char calcula_crc(unsigned char *,__bit);
 void bin2lcd(char ,unsigned char , char );
 void le_temperatura() __critical;
 void inicia_display();
@@ -85,9 +107,9 @@ void inicia_serial(){
 	ES=1;//habilita a interrupção serial
 }
 
-void envia_serial(unsigned char dados[9]){
+void envia_serial(unsigned char *dados){
 	unsigned char hobbit;
-	for(hobbit=0;hobbit!=4;hobbit++){
+	for(hobbit=0;hobbit!=5;hobbit++){
 		A=0xff;//carrega no acumulador
 		TB8=P;//acerta o bit de paridade da transmissão
 		SBUF=0xff;//envia caractere
@@ -161,7 +183,7 @@ void WriteByte(unsigned char Dout)
         DelayUs(6);
 }
 
-unsigned char calcula_crc(unsigned char dado[9],__bit tipo){
+unsigned char calcula_crc(unsigned char *dado,__bit tipo){
 	unsigned char joe,tamanho;
 	unsigned char crc=0,crc_index;
 	if(tipo){	//se tipo diferente de zero, faz crc do scratchpad
@@ -275,13 +297,15 @@ void inicia_display()
 	const unsigned char instr[]={0x06,0x0C,0x28,0x01};
 	unsigned char i,j;
 	RS=RdWr=E=0;
-	for(i=0;i!=60;i++){		//gera um atraso de 15ms de inicialização
+	for(i=0;i!=120;i++){		//gera um atraso de 15ms de inicialização
+		atraso(250);
 		atraso(250);
 	}
 	E=1;
 	LCD=0x24;			//envia comando para operação em 4 bits
 	E=0;
 	for(j=0;j!=20;j++){		//gera um atraso de 5ms de inicialização
+		atraso(250);
 		atraso(250);
 	}
 	for(i=0;i!=4;i++){	//envia as instruções de inicialização
