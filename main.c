@@ -527,7 +527,7 @@ void set_temp_var() __critical{//ajusta a variação da temperatura de controle
 				anterior=tdiff_lsb;
 					test++;
 					if(!ch0){//se apertar
-						if(tdiff_lsb>0x08){//trava em 0,5 graus
+						if(tdiff_lsb>0x00){//trava em 0,0 graus
 							
 if(((tdiff_lsb&0x0f)==0x02)||((tdiff_lsb&0x0f)==0x05)||((tdiff_lsb&0x0f)==0x07)||((tdiff_lsb&0x0f)==0x0A)||((tdiff_lsb&0x0f)==0x0D)||((tdiff_lsb&0x0f)==0x0F)){
 								tdiff_lsb-=2;//subtrai
@@ -653,6 +653,7 @@ void inicia_ds18b20(){
 
 
 void main(){
+	releh=0; valvula=0;//começa com as saídas de controle desligadas
 	inicia_display();
 	layout_lcd();
 	inicia_ds18b20();
