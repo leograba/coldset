@@ -20,11 +20,11 @@
 
 
 
-char temp_msb,max_msb,min_msb,tcon_msb=0x01,rele_max_msb,rele_min_msb;//tdiff_msb=0x00;
+char temp_msb,max_msb,min_msb,tcon_msb=0x01,rele_max_msb,rele_min_msb;
 unsigned char temp_lsb,max_lsb,min_lsb,tcon_lsb=0x40,tdiff_lsb=0x10,rele_max_lsb,rele_min_lsb;
 __code char msg1[17]="Temp de Controle";
 __code char msg2[14]="Variacao (dt)";
-unsigned volatile char ctrl=0;
+volatile __bit flag_backlight=0;
 
 /********************************************************/
 /***********Tabela para cálculo do CRC*******************/
@@ -62,11 +62,12 @@ void atualiza_temp() __critical;
 void envia_lcd(char ) ;
 void layout_lcd();
 void primeira_impressao();
+void atraso(unsigned char);
 void atraso_250us(unsigned char ) ;
 void atraso_long();
 void teclado0() __critical __interrupt 0;
 void teclado1() __critical __interrupt 2;
-void select_mode() __critical;
+void select_mode(__bit) __critical;
 void set_temp();
 void set_temp_var();
 void atualiza_limites();
@@ -104,7 +105,6 @@ __bit ReadBit(void)
 
 void WriteBit(char Dbit)
 {
-        //unsigned char i=0;
     	DQ=0;
         DQ = Dbit ? 1:0;
         DelayUs(5);         	// delay about 39 uS
@@ -248,7 +248,7 @@ void inicia_display()
 	__code char start[5]={0x38,0x0A,0x01,0x06,0x0C};	// Carrega os Vetores com os valores de inicialização
 	atraso_250us (0x3C);					// Gera um atraso de 15ms
 	RS=0; RdWr=0;						// Prepara para escrita de instrução
-	for(nvetor=0;nvetor!=8;nvetor++){			// Laço que controla o número do vetor que será lido
+	for(nvetor=0;nvetor!=5;nvetor++){			// Laço que controla o número do vetor que será lido
 		E=1;						// Seta o Enable para a gravação ser possível
 		LCD_dados=start[nvetor];			// Envia ao barramento de dados os valores de Inicialização
 		E=0;						// Reseta o Enable para confirmar o recebimento
@@ -323,37 +323,52 @@ void layout_lcd()
 	}
 }// fim primeira impressao
 
+void atraso(unsigned char tempo){
+	//essa rotina não é recomendada para tempos de menos que 30us(22us na verdade, massss....)
+	//as instruções a seguir corrigem o offset da função
+	tempo-=15;	//1us
+	tempo/=6;	//8us
+	//cada laço while demora 6us
+	while(tempo){	//enquanto o tempo em us não for zero
+		--tempo;//decrementa a cada ciclo do laço while
+	}
+}
 
 void atraso_250us(unsigned char vezes)	// 125us para 24MHz
-{								// Inicio da Função atraso_display
-		TMOD=(TMOD&0xf0)|0x02;				// Habilita o timer 0 no modo 2
-		TH0=0x05;				// Carrega o TH0 para recarga com 5
-		TL0=0x05;				// Carrega o TL0 com 5, onde irá contar 250 vezes
-		while(vezes!=0){			// Espera o n* de vezes de Estouro zerar
-			TR0=1;			// Inicia o Timer 0
-			while(!TF0);		// Aguarda haver o OverFlow do Contador
-			--vezes;			// Desconta do número de vezes
-			TF0=0;				// Reseta o bit de Overflow
+{						// Inicio da Função atraso_display
+		while(vezes){			// Espera o n* de vezes de Estouro zerar
+			atraso(0xff);
+			--vezes;		// Desconta do número de vezes
 		}
-		TR0=0;					//Desliga o timer 0
-}							// Fim da funçao atraso_display
+}						// Fim da funçao atraso_display
 
 void atraso_long(){
 	unsigned char joe;
-		for(joe=0;joe!=32;joe++){//gera um atraso de aprox. 2s
-			atraso_250us(250);
+		if(!flag_backlight){
+			return;//se não recebeu interrupção, não gera atraso
 		}
+		flag_backlight=0;//zera a flag de tratamento de interrupção
+		for(joe=0;joe!=32;joe++){//gera um atraso de aprox. 2s
+			if(flag_backlight){//se recebe interrupção durante atraso, sai do atraso
+			//mas mantem a flag setada para iniciar novo atraso
+				return;
+			}
+			 atraso_250us(250);
+		}
+		backlight=0;//desliga backlight após atraso
 }
 
 void teclado0() __critical __interrupt 0 {//caso chave 0 seja acionada
-	ctrl=0x0f;
+	flag_backlight=1;
+	select_mode(0);
 }
 
 void teclado1() __critical __interrupt 2 {//caso chave 1 seja acionada
-	ctrl=0xff;
+	flag_backlight=1;
+	select_mode(1);
 }
 
-void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve imprimir os parametros
+void select_mode(__bit ctrl) __critical{//verifica em qual ajuste entrar, ou se deve imprimir os parametros
 	unsigned char kaes;
 	unsigned char letra;
 	__code char status1[6]="Tcon:";
@@ -364,7 +379,7 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 		TH1=0x00;//conta o máximo possível
 		TL1=0x00;
 		TR1=1;//inicia contagem do timer 0
-		if(ctrl==0x0f){//se int veio da tecla 0
+		if(!ctrl){//se int veio da tecla 0
 			while(!TF1){
 				if(ch0){//se soltar o push button já era muleke!
 					reset_lcd();//reseta display
@@ -381,6 +396,8 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 					}
 					bin2lcd(0x00,tdiff_lsb,0xC6);
 					atraso_long();
+					backlight=1;//a rotina atraso_long desliga o backlight
+					flag_backlight=1;//precisa setar senão o display não apaga depois
 					layout_lcd();
 					bin2lcd(min_msb,min_lsb,0xC2);
 					bin2lcd(max_msb,max_lsb,0xCA);
@@ -388,7 +405,7 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 				}
 			}
 		}
-		else if(ctrl==0xff){//se int veio da tecla 1
+		else if(ctrl){//se int veio da tecla 1
 			while(!TF1){
 				if(ch1){//se soltar o push button já era muleke!
 					reset_lcd();//reseta display
@@ -405,6 +422,8 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 					}
 					bin2lcd(0x00,tdiff_lsb,0xC6);
 					atraso_long();
+					backlight=1;//a rotina atraso_long desliga o backlight
+					flag_backlight=1;//precisa setar senão o display não apaga depois
 					layout_lcd();
 					bin2lcd(min_msb,min_lsb,0xC2);
 					bin2lcd(max_msb,max_lsb,0xCA);
@@ -424,7 +443,7 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 		TH1=0x00;//conta o máximo possível
 		TL1=0x00;
 		TR1=1;//inicia contagem do timer 0
-		if(ctrl==0x0f){//se int veio da tecla 0
+		if(!ctrl){//se int veio da tecla 0
 			while(!TF1){
 				if(ch0){//se soltar o push button configura set_temp
 					set_temp();
@@ -432,7 +451,7 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 				}
 			}
 		}
-		else if(ctrl==0xff){//se int veio da tecla 1
+		else if(ctrl){//se int veio da tecla 1
 			while(!TF1){
 				if(ch1){//se soltar o push button configura set_temp
 					set_temp();
@@ -448,10 +467,10 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 	for(letra=0;letra!=13;letra++){//envia "Var de Temp"
 		envia_lcd(msg2[letra]);
 	}
-	if(ctrl==0x0f){
+	if(!ctrl){
 		while(!ch0);
 	}
-	else if(ctrl==0xff){
+	else if(ctrl){
 		while(!ch1);
 	}
 	set_temp_var();//config. da variação da temperatura de controle
@@ -564,6 +583,8 @@ void set_temp_var(){//ajusta a variação da temperatura de controle
 		for(indio=0;indio!=40;indio++){//espera pelo menos um tempo pra apertar alguma tecla
 			TF1=0;
 			while(!TF1){
+				//atualiza temperatura de controle no LC
+				bin2lcd(0x00,tdiff_lsb,0xC5);//bem no meio da segunda linha
 				if(!ch0||!ch1){
 					anterior=tdiff_lsb;
 					test=1;	//seta flag de tecla apertada
@@ -621,8 +642,6 @@ if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)|
 					tribo=4;
 				}
 			}
-			//atualiza temperatura de controle no LC
-			bin2lcd(0x00,tdiff_lsb,0xC5);//bem no meio da segunda linha
 		}
 		if(!test){//se nenhuma tecla pressionada em 2 segundos, sai
 			RS=0;//volta o lcd para a condição normal e imprime Th e Tl atuais
@@ -702,13 +721,7 @@ void main(){
 		le_temperatura();
 		atualiza_temp();
 		ctrl_releh();
-		if(ctrl){//se recebeu interrupção, entra na select_mode
-		//dessa maneira que estou fazendo, parece mais uma varredura elegante do que interrupção
-			select_mode();
-			ctrl=0;
-			atraso_long();//deixa o backlight ligado no layout padrão por um tempo
-			backlight=0;
-		}
+		atraso_long();
 	}
 }
 
