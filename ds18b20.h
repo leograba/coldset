@@ -1,4 +1,8 @@
+#ifndef DS18B20_H
+#define DS18B20_H
+
 #include <at89s8252.h> //compatível com AT89S52
+#include "delay.h"
 
 /*********DEFINIÇÃO DOS PORTS E CONSTANTES**************/
 // ports
@@ -32,7 +36,6 @@ __code unsigned char crc_lut[256]={
 /********************************************************/
 
 /**************funções de ds18b20.h*******************/
-void DelayUs(int );
 __bit rst_one_wire(void);
 __bit ReadBit(void);
 void WriteBit(char );
@@ -41,24 +44,19 @@ void WriteByte(unsigned char );
 unsigned char calcula_crc(unsigned char *,__bit);
 void inicia_ds18b20();
 void le_temperatura() __critical;
-void atraso_250us(unsigned char ) ;
 /****************fim das funções*******************/
-
-void DelayUs(int us)
-{
-        int amon_ra;
-        for (amon_ra=0; amon_ra<us; amon_ra++);
-}
 
 __bit rst_one_wire(void)
 {
         __bit presence;
         DQ = 0;                 //pull DQ line low
-        DelayUs(40);    	// leave it low for about 490us
+	atraso(250);		//leave it low for about 490us
+	atraso(250);
         DQ = 1;                 // allow line to return high
-        DelayUs(20);    	// wait for presence 55 uS
+	atraso(55);		// wait for presence 55 uS
         presence = DQ;  	// get presence signal
-        DelayUs(25);    	// wait for end of timeslot 316 uS
+	atraso(200);		// wait for end of timeslot 316 uS
+	atraso(116);
         return(presence);
 }// 0=presence, 1 = no part
 
@@ -75,7 +73,7 @@ void WriteBit(char Dbit)
 {
     	DQ=0;
         DQ = Dbit ? 1:0;
-        DelayUs(5);         	// delay about 39 uS
+	atraso(39);	// delay about 39 uS
         DQ = 1;
 }
 
@@ -86,7 +84,7 @@ unsigned char ReadByte(void)
         for (horus=0;horus!=8;horus++)
         {
                 Din|=ReadBit()? 0x01<<horus:Din;
-                DelayUs(8);
+                atraso(144);
         }
         return(Din);
 }
@@ -99,7 +97,7 @@ void WriteByte(unsigned char Dout)
                 WriteBit(Dout&0x1);	// write bit in temp into
                 Dout = Dout >> 1;
         }
-        DelayUs(6);
+        atraso(114);
 }
 
 unsigned char calcula_crc(unsigned char *dado,__bit tipo){
@@ -123,7 +121,6 @@ void inicia_ds18b20(){
 		le_temperatura();
 		if(temp_msb!=5){
 			if(temp_lsb!=0x50){
-				//poderia ser return, mas fiz com break pensando em outras funcionalidades
 				min_msb=max_msb=temp_msb;//inicializa valores com a primeira leitura
 				min_lsb=max_lsb=temp_lsb;
 				break;//quando para de receber +85 graus sai da rotina
@@ -146,8 +143,7 @@ void le_temperatura() __critical{
 	//rst_one_wire();
 	WriteByte(0xCC);//SKIP ROM, só serve pra um único termômetro
 	WriteByte(0x44);//start conversion
-	atraso_250us (0x70);//0x3C espera converter temperatura
-	//while(!DQ);//espera converter temperatura - só serve para alimentação não parasita
+	while(!DQ);//espera converter temperatura - só serve para alimentação não parasita
 	do{		//lê até achar um valor válido
 		rst_one_wire();
 		WriteByte(0xCC);//SKIP ROM, só serve pra um único termômetro
@@ -157,16 +153,8 @@ void le_temperatura() __critical{
 		}
 	} while(calcula_crc(scratchpad,1));
 	temp_msb=scratchpad[1];//bit mais significativo(de sinal)
-	//P0=temp_msb;
 	temp_lsb=scratchpad[0];//temperatura
-	//P0=temp_lsb;
 	envia_serial(scratchpad);//manda os dados do sensor pela serial(onde está o transmissor RF)
 }
 
-void atraso_250us(unsigned char vezes)	// 125us para 24MHz
-{						// Inicio da Função atraso_display
-		while(vezes){			// Espera o n* de vezes de Estouro zerar
-			atraso(0xff);
-			--vezes;		// Desconta do número de vezes
-		}
-}						// Fim da funçao atraso_display
+#endif

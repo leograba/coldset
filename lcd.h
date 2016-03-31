@@ -1,4 +1,8 @@
+#ifndef LCD_H
+#define LCD_H
+
 #include <at89s8252.h> //compatível com AT89S52
+#include "delay.h"
 
 /*********DEFINIÇÃO DOS PORTS E CONSTANTES**************/
 // ports
@@ -16,7 +20,7 @@ void atualiza_temp() __critical;
 void reset_lcd();
 void envia_lcd(unsigned char ) ;
 void layout_lcd();
-void atraso(unsigned char);
+//void atraso(unsigned char);
 /****************fim das funções*******************/
 
 void inicia_display()
@@ -88,13 +92,4 @@ void layout_lcd()
 	}
 }// fim primeira impressao
 
-void atraso(unsigned char tempo){
-	//essa rotina não é recomendada para tempos de menos que 30us(22us na verdade, massss....)
-	//as instruções a seguir corrigem o offset da função
-	tempo-=15;	//1us
-	tempo/=6;	//8us
-	//cada laço while demora 6us
-	while(tempo){	//enquanto o tempo em us não for zero
-		--tempo;//decrementa a cada ciclo do laço while
-	}
-}
+#endif
