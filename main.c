@@ -16,7 +16,7 @@
 /*************** VARIÁVEIS EXTERNAS*********************/
 
 
-char temp_atual[4]={'+', '0','0','0'};
+static volatile char temp_atual[4]={'+', '0','0','0'};
 //char temp_min[4]={'+','0','0','0'};
 //char temp_max[4]={'+','0','0','0'};
 //unsigned char cont='0';
@@ -35,16 +35,17 @@ char ReadBit(void);
 void WriteBit(char );
 unsigned char ReadByte(void);
 void WriteByte(unsigned char );
-void le_temperatura();
+void bin2lcd(char ,unsigned char , char )
+void le_temperatura() __critical;
 void inicia_display();
-void atualiza_temp();
+void atualiza_temp() __critical;
 void envia_lcd(char );
 void primeira_impressao();
 void atraso_250us(char );
 void teclado0() __critical __interrupt 0;
 void teclado1() __critical __interrupt 2;
-void set_temp();
-void set_temp_var();
+void set_temp() __critical;
+void set_temp_var() __critical;
 /****************fim das funções*******************/
 
 
@@ -54,9 +55,6 @@ void DelayUs(int us)
         for (i=0; i<us; i++);
 }
 
-//----------------------------------------
-// Reset DS1820
-//----------------------------------------
 char ResetDS1820(void)
 {
         char presence;
@@ -69,9 +67,6 @@ char ResetDS1820(void)
         return(presence);
 }       // 0=presence, 1 = no part
 
-//-----------------------------------------
-// Read one bit from DS1820
-//-----------------------------------------
 char ReadBit(void)
 {
         unsigned char i=0;
@@ -81,9 +76,6 @@ char ReadBit(void)
         return(DQ); // return value of DQ line
 }
 
-//-----------------------------------------
-// Write one bit to DS1820
-//-----------------------------------------
 void WriteBit(char Dbit)
 {
         unsigned char i=0;
@@ -93,9 +85,6 @@ void WriteBit(char Dbit)
         DQ = 1;
 }
 
-//-----------------------------------------
-// Read 1 byte from DS1820
-//-----------------------------------------
 unsigned char ReadByte(void)
 {
         unsigned char i;
@@ -108,9 +97,6 @@ unsigned char ReadByte(void)
         return(Din);
 }
 
-//-----------------------------------------
-// Write 1 byte
-//-----------------------------------------
 void WriteByte(unsigned char Dout)
 {
         unsigned char i;
@@ -122,13 +108,66 @@ void WriteByte(unsigned char Dout)
         DelayUs(5);
 }
 
-
+void bin2lcd(char msb,unsigned char lsb, char lcd_add)
+{
+    unsigned char tab[16]={'0','1','1','2','3','3','4','4','5','6','6','7','8','8','9','9'};
+    unsigned char temperatura;
+    unsigned char atual[4];
+    if(!(msb&0xF0)){//se é uma temperatura positiva
+            atual[0]='+';
+            //define o dígito decimal
+            atual[3]=tab[(lsb&0x0f)];
+            //define o resto
+            lsb=(lsb>>4)&0x0F;//exclui os bits decimais
+            msb=(msb<<4)&0x70;//exclui os bits de sinal
+            temperatura=lsb|msb;//junta temperatura inteira num unico byte
+            if(temperatura<10)  {
+                atual[2]=('0'+temperatura);
+                atual[1]='0';
+              }
+            else if(temperatura>=10){
+                atual[1]=('0'+temperatura/10);
+                atual[2]=('0'+temperatura%10);
+            }
+        }
+    else if((msb&0xF0)){//se é uma temperatura negativa
+        atual[0]='-';
+        if(lsb){//complemento de 2
+            msb=~msb;
+            lsb=~(lsb)+1;//complemento de 2
+        }
+        else if(!lsb){//exceção à regra quando lsb=0
+            msb=(~msb+1);
+        }//fim do complemento de 2
+        //define o dígito decimal
+        atual[3]=tab[(lsb&0x0f)];
+        //define o resto
+        lsb=lsb>>4;//exclui os bits decimais
+        msb=(msb<<4)&0x70;//exclui os bits de sinal
+        temperatura=lsb|msb;//junta temperatura inteira num unico byte
+        if(temperatura<10)  {
+            atual[2]=('0'+temperatura);
+            atual[1]='0';
+        }
+        else if(temperatura>=10){
+            atual[1]=('0'+temperatura/10);
+            atual[2]=('0'+temperatura%10);
+        }
+    }
+    //Envia os caracteres para o endereço selecionado
+    RS=0;
+    envia_lcd(lcd_add);
+    RS=1;
+    envia_lcd(atual[0]);
+    envia_lcd(atual[1]);
+    envia_lcd(atual[2]);
+    envia_lcd(',');
+    envia_lcd(atual[3]);
+}
 
 void le_temperatura() __critical{
     unsigned char scratchpad[10];//guarda os 9 bytes do scrathpad(memória de rascunho)
-    unsigned char k,temperatura;
-    unsigned char t_msb,t_lsb;
-    unsigned char tab[16]={'0','1','1','2','3','3','4','4','5','6','6','7','8','8','9','9'};
+    unsigned char k;
 
     ResetDS1820();
     //WriteByte(0xCC);//SKIP ROM, só serve pra um único termômetro
@@ -140,7 +179,8 @@ void le_temperatura() __critical{
     //ResetDS1820();
     WriteByte(0xCC);//SKIP ROM, só serve pra um único termômetro
     WriteByte(0x44);//start conversion
-    atraso_250us (0x3C);
+    atraso_250us (0x70);//0x3C
+    //while(!DQ);//espera converter temperatura - só serve para alimentação não parasita
 
     ResetDS1820();
     WriteByte(0xCC);//SKIP ROM, só serve pra um único termômetro
@@ -148,53 +188,11 @@ void le_temperatura() __critical{
     for(k=0;k<9;k++){
         scratchpad[k]=ReadByte();
     }
-    temp_msb=t_msb=scratchpad[1];//bit mais significativo(de sinal)
+    temp_msb=scratchpad[1];//bit mais significativo(de sinal)
     //P0=temp_msb;
-    temp_lsb=t_lsb=scratchpad[0];//temperatura
+    temp_lsb=scratchpad[0];//temperatura
     //P0=temp_lsb;
-    if(!(t_msb&0xF0)){//se é uma temperatura positiva
-        temp_atual[0]='+';
-        //define o dígito decimal
-        temp_atual[3]=tab[(t_lsb&0x0f)];
-        //define o resto
-        t_lsb=(t_lsb>>4)&0x0F;//exclui os bits decimais
-        t_msb=(t_msb<<4)&0x70;//exclui os bits de sinal
-        temperatura=t_lsb|t_msb;//junta temperatura inteira num unico byte
-        if(temperatura<10)  {
-            temp_atual[2]=('0'+temperatura);
-            temp_atual[1]='0';
-          }
-        else if(temperatura>=10){
-            temp_atual[1]=('0'+temperatura/10);
-            temp_atual[2]=('0'+temperatura%10);
-        }
-    }
-    else if((t_msb&0xF0)){//se é uma temperatura negativa
-        temp_atual[0]='-';
-        if(t_lsb){//complemento de 2
-            t_msb=~t_msb;
-            t_lsb=~(t_lsb)+1;//complemento de 2
-        }
-        else if(!t_lsb){//exceção à regra quando lsb=0
-            t_msb=(~t_msb+1);
-        }//fim do complemento de 2
-        //define o dígito decimal
-        temp_atual[3]=tab[(t_lsb&0x0f)];
-        //define o resto
-        t_lsb=t_lsb>>4;//exclui os bits decimais
-        t_msb=(t_msb<<4)&0x70;//exclui os bits de sinal
-        temperatura=t_lsb|t_msb;//junta temperatura inteira num unico byte
-        if(temperatura<10)  {
-            temp_atual[2]=('0'+temperatura);
-            temp_atual[1]='0';
-        }
-        else if(temperatura>=10){
-            temp_atual[1]=('0'+temperatura/10);
-            temp_atual[2]=('0'+temperatura%10);
-        }
-    }
 }
-
 
 void inicia_display()
 {
@@ -216,78 +214,43 @@ void inicia_display()
 
 void atualiza_temp() __critical{
 //atualiza temperatura atual
-    RS=0;
-    envia_lcd(0x85);//endereço da dezena
-    RS=1;
-    envia_lcd(temp_atual[0]);
-    envia_lcd(temp_atual[1]);
-    envia_lcd(temp_atual[2]);
-    envia_lcd(',');
-    envia_lcd(temp_atual[3]);
+    bin2lcd(temp_msb,temp_lsb,0x85);
 
     //verifica se precisa atualizar Max e Min
     if(temp_msb>max_msb){//se for maior, atualiza a máxima
         //atualiza temperatura máxima
         max_msb=temp_msb;
         max_lsb=temp_lsb;
-        RS=0;
-        envia_lcd(0xCA);//endereço da dezena
-        RS=1;
-        envia_lcd(temp_atual[0]);
-        envia_lcd(temp_atual[1]);
-        envia_lcd(temp_atual[2]);
-        envia_lcd(',');
-        envia_lcd(temp_atual[3]);
+        bin2lcd(max_msb,max_lsb,0xCA);
     }
     else if((temp_msb==max_msb)&&(temp_lsb>max_lsb)){//se for maior, atualiza a máxima
         //atualiza temperatura máxima
         max_msb=temp_msb;
         max_lsb=temp_lsb;
-        RS=0;
-        envia_lcd(0xCA);//endereço da dezena
-        RS=1;
-        envia_lcd(temp_atual[0]);
-        envia_lcd(temp_atual[1]);
-        envia_lcd(temp_atual[2]);
-        envia_lcd(',');
-        envia_lcd(temp_atual[3]);
+        bin2lcd(max_msb,max_lsb,0xCA);
     }
      if(temp_msb<min_msb){//se for menor, atualiza a mínima
         //atualiza temperatura minima
         min_msb=temp_msb;
         min_lsb=temp_lsb;   
-        RS=0;
-        envia_lcd(0xC2);//endereço da dezena
-        RS=1;
-        envia_lcd(temp_atual[0]);
-        envia_lcd(temp_atual[1]);
-        envia_lcd(temp_atual[2]);
-        envia_lcd(',');
-        envia_lcd(temp_atual[3]);
+        bin2lcd(min_msb,min_lsb,0xC2);
     }
     else if((temp_msb==min_msb)&&(temp_lsb<min_lsb)){//se for menor, atualiza a mínima
         //atualiza temperatura minima   
         min_msb=temp_msb;
         min_lsb=temp_lsb;   
-        RS=0;
-        envia_lcd(0xC2);//endereço da dezena
-        RS=1;
-        envia_lcd(temp_atual[0]);
-        envia_lcd(temp_atual[1]);
-        envia_lcd(temp_atual[2]);
-        envia_lcd(',');
-        envia_lcd(temp_atual[3]);
+        bin2lcd(min_msb,min_lsb,0xC2);
     } 
 }
 
 void envia_lcd(char dado)
-{                               // Inicia função escreve_lcd
-        E=1;                    // Seta E do display
+{                       // Inicia função escreve_lcd
+        E=1;                // Seta E do display
         atraso_250us(0x08);     // Aguarda para confirmar o Set de E
         LCD_dados=dado;         // Envia o dado para o display
         atraso_250us(0x08);     // Aguarda para confirmar o recebimento do dado
-        E=0;                    // Reseta o E para imprimir caracter
-}                               // Fim da Função escreve_lcd
+        E=0;                // Reseta o E para imprimir caracter
+}                       // Fim da Função escreve_lcd
 
 void primeira_impressao()
 {
@@ -451,27 +414,23 @@ void set_temp_var() __critical{
 
 
 void main(){
-    unsigned char i;//,zero=0;
+    unsigned char i;
     inicia_display();
     primeira_impressao();
-    for(i=0;i<0x25;i++){
-    le_temperatura();//espera estabilizar
+    for(i=0;i<0x10;i++){
+        le_temperatura();//espera estabilizar
     }
     min_msb=max_msb=temp_msb;//inicializa valores com a primeira leitura
     min_lsb=max_lsb=temp_lsb;
     IE=0x85;//ativa as interrupções externas \int0 e \int1
-    //IT0=0;
     for(;;){//loop infinito
-        atraso_250us(1);//atraso necessário para não dar problema com TH,
-//só não entendi qual o problema quando não tem esse atraso
-//Usando laço for, precisou de mais de 2 laços para fazer dar certo o atraso
         le_temperatura();
         atualiza_temp();
-        if(int_ctrl==1){
+        if(int_ctrl==1){//config. da temperatura de controle
             set_temp();
             int_ctrl=0;
         }
-        else if(int_ctrl==2){
+        else if(int_ctrl==2){//config. da variação da temperatura de controle
             set_temp_var();
             int_ctrl=0;
         }
