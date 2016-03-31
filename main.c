@@ -8,21 +8,17 @@
 # define    ch1         P3_3
 # define    LCD_dados       P1
 # define    backlight       P2_3
-# define    RdWr            P2_6
-# define    RS          P2_5
-# define    E           P2_7
+# define    RdWr            P3_6
+# define    RS          P3_5
+# define    E           P3_7
 /********************************************************/
 
 /*************** VARIÁVEIS EXTERNAS*********************/
 
 
-static volatile char temp_atual[4]={'+', '0','0','0'};
-//char temp_min[4]={'+','0','0','0'};
-//char temp_max[4]={'+','0','0','0'};
-//unsigned char cont='0';
-//unsigned char temperatura,minima,maxima;
-char temp_msb,max_msb,min_msb,tcon_msb,tdiff_msb;
-unsigned char temp_lsb,max_lsb,min_lsb,tcon_lsb,tdiff_lsb;
+
+char temp_msb,max_msb,min_msb,tcon_msb=0x01,tdiff_msb=0x00;
+unsigned char temp_lsb,max_lsb,min_lsb,tcon_lsb=0x40,tdiff_lsb=0x10;
 volatile char int_ctrl=0;
 
 
@@ -35,13 +31,13 @@ char ReadBit(void);
 void WriteBit(char );
 unsigned char ReadByte(void);
 void WriteByte(unsigned char );
-void bin2lcd(char ,unsigned char , char )
+void bin2lcd(char ,unsigned char , char );
 void le_temperatura() __critical;
 void inicia_display();
 void atualiza_temp() __critical;
-void envia_lcd(char );
+void envia_lcd(char ) ;
 void primeira_impressao();
-void atraso_250us(char );
+void atraso_250us(char ) ;
 void teclado0() __critical __interrupt 0;
 void teclado1() __critical __interrupt 2;
 void set_temp() __critical;
@@ -59,21 +55,21 @@ char ResetDS1820(void)
 {
         char presence;
         DQ = 0;                 //pull DQ line low
-        DelayUs(40);    // leave it low for about 490us
+        DelayUs(40);        // leave it low for about 490us
         DQ = 1;                 // allow line to return high
-        DelayUs(20);     // wait for presence 55 uS
-        presence = DQ;  // get presence signal
-        DelayUs(25);    // wait for end of timeslot 316 uS
+        DelayUs(20);        // wait for presence 55 uS
+        presence = DQ;      // get presence signal
+        DelayUs(25);        // wait for end of timeslot 316 uS
         return(presence);
-}       // 0=presence, 1 = no part
+}// 0=presence, 1 = no part
 
 char ReadBit(void)
 {
         unsigned char i=0;
-        DQ = 0;         // pull DQ low to start timeslot
+        DQ = 0;             // pull DQ low to start timeslot
         DQ=1;
-        for (i=0; i<1; i++); // delay 17 us from start of timeslot
-        return(DQ); // return value of DQ line
+        for (i=0; i<1; i++);    // delay 17 us from start of timeslot
+        return(DQ);         // return value of DQ line
 }
 
 void WriteBit(char Dbit)
@@ -81,7 +77,7 @@ void WriteBit(char Dbit)
         unsigned char i=0;
         DQ=0;
         DQ = Dbit ? 1:0;
-        DelayUs(5);                     // delay about 39 uS
+        DelayUs(5);             // delay about 39 uS
         DQ = 1;
 }
 
@@ -100,9 +96,9 @@ unsigned char ReadByte(void)
 void WriteByte(unsigned char Dout)
 {
         unsigned char i;
-        for (i=0; i<8; i++) // writes byte, one bit at a time
+        for (i=0; i<8; i++)         // writes byte, one bit at a time
         {
-                WriteBit(Dout&0x1);            // write bit in temp into
+                WriteBit(Dout&0x1); // write bit in temp into
                 Dout = Dout >> 1;
         }
         DelayUs(5);
@@ -240,7 +236,7 @@ void atualiza_temp() __critical{
         min_msb=temp_msb;
         min_lsb=temp_lsb;   
         bin2lcd(min_msb,min_lsb,0xC2);
-    } 
+    }
 }
 
 void envia_lcd(char dado)
@@ -252,23 +248,24 @@ void envia_lcd(char dado)
         E=0;                // Reseta o E para imprimir caracter
 }                       // Fim da Função escreve_lcd
 
-void primeira_impressao()
+void layout_lcd()
 {
-    char fixos[2][16]={"Temp:+00,0","L:     /H:     "};//fixos[2][caracteres+1]
+    char fixos[2][17]={"Temp:           ","L:     /H:      "};//fixos[2][caracteres+1]
     char letra;
     RS=0;
     envia_lcd(0x80);
     RS=1;
-    for(letra=0;letra<10;letra++){//envia linha superior
+    for(letra=0;letra<16;letra++){//envia linha superior
         envia_lcd(fixos[0][letra]);
     }
     RS=0;
     envia_lcd(0xC0);
     RS=1;
-    for(letra=0;letra<15;letra++){//envia linha inferior
+    for(letra=0;letra<16;letra++){//envia linha inferior
         envia_lcd(fixos[1][letra]);
     }
 }// fim primeira impressao
+
 
 void atraso_250us(char vezes)   // 125us para 24MHz
 {                               // Inicio da Função atraso_display
@@ -349,10 +346,12 @@ void teclado1() __critical __interrupt 2 {//caso chave 1 seja acionada
     while(!ch1);
 }
 
+
+
 void set_temp() __critical{//seta temperatura de controle
     char msg[17]="Temp de Controle";
     unsigned char letra;
-    unsigned char test=0,i;
+    unsigned char test=0,i,j,k,l=60,m=10;
     RS=0;
     envia_lcd(0x01);//reseta display
     RS=1;
@@ -362,36 +361,63 @@ void set_temp() __critical{//seta temperatura de controle
     TMOD=0x01;//timer 0 no modo 16 bits
     TH0=0x00;//conta o máximo possível
     TL0=0x00;
+    TR0=1;
     while(1){
-        for(i=0,test=0;i<31;i++){//2 segundos pra apertar uma tecla
-            while(!TF0){
-                if(ch0){
-                    test++;
-                    if(tcon_lsb>0){
-                        tcon_lsb-=8;//subtrai meio grau
-                    }
-                    else{
-                        tcon_lsb=0xf8;//se é 0 vai pro máximo
-                        tcon_msb--;//e subtrai um desse
-                    }
-                }
-                if(ch1){
-                    test++;
-                    if(tcon_lsb<0xff){
-                        tcon_lsb+=8;//soma meio grau
-                    }
-                    else{
-                        tcon_lsb=0x00;//se é máximo vai pro zero
-                        tcon_msb++;//e soma um desse
-                    }
-                }
-                //atualiza temperatura de controle no LCD
-                
-            }
+        for(i=0;i<60;i++){//espera pelo menos um tempo pra apertar alguma tecla
             TF0=0;
-            TR0=0;
+            while(!TF0){
+                if(!ch0||!ch1){
+                    if(!ch0){//se apertar
+                        test++;
+                        if(tcon_lsb!=0){
+                            tcon_lsb=tcon_lsb-0x08;//subtrai meio grau
+                        }
+                        else{
+                            tcon_lsb=0xf8;//se é 0 vai pro máximo
+                            tcon_msb--;//e subtrai um desse
+                        }
+                        if(l!=0)
+                            l-=m;//aumenta velocidade de decremento
+                            if(m!=1)
+                                m--;
+                        //break;
+                    }
+                    if(!ch1){//se apertar
+                        test++;
+                        if(tcon_lsb!=0xf8){
+                            tcon_lsb=tcon_lsb+0x08;//soma meio grau
+                        }
+                        else{
+                            tcon_lsb=0x00;//se é máximo vai pro zero
+                            tcon_msb++;//e soma um desse
+                        }
+                        if(l!=0)
+                            l-=m;//aumenta velocidade de incremento
+                            if(m!=1)
+                                m--;
+                        //break;
+                    }
+                    for(k=0;k!=l;k++){
+                        for(j=0;j!=0xff;j++){//debounce
+                            atraso_250us(0xff);
+                        }
+                    }
+                    break;
+                }
+                else{
+                    l=60;
+                    m=10;
+                }
+            }
+            //atualiza temperatura de controle no LCD
+            bin2lcd(tcon_msb,tcon_lsb,0xC6);//bem no meio da segunda linha
         }
         if(!test){//se nenhuma tecla pressionada em 2 segundos, sai
+            RS=0;//volta o lcd para a condição normal e imprime Th e Tl atuais
+            layout_lcd();
+            bin2lcd(min_msb,min_lsb,0xC2);
+            bin2lcd(max_msb,max_lsb,0xCA);
+            TR0=0;//desliga o contador
             return;
         }
         test=0;//se foi pressionada, zera para fazer o teste novamente
@@ -401,14 +427,85 @@ void set_temp() __critical{//seta temperatura de controle
 void set_temp_var() __critical{
     char msg[12]="Var de Temp";
     unsigned char letra;
+    unsigned char test=0,i,j,k,l=60,m=10;
     RS=0;
     envia_lcd(0x01);//reseta display
     RS=1;
     for(letra=0;letra<12;letra++){//envia "Var de Temp"
         envia_lcd(msg[letra]);
     }
-    //laço infinito de teste
-    while(1);
+    TMOD=0x01;//timer 0 no modo 16 bits
+    TH0=0x00;//conta o máximo possível
+    TL0=0x00;
+    TR0=1;
+    while(1){
+        for(i=0;i<60;i++){//espera pelo menos um tempo pra apertar alguma tecla
+            TF0=0;
+            while(!TF0){
+                if(!ch0||!ch1){
+                    if(!ch0){//se apertar
+                        test++;
+                        if(tdiff_lsb!=0){
+                            if(((tdiff_lsb&0x0f)==0x02)||((tdiff_lsb&0x0f)==0x05)||((tdiff_lsb&0x0f)==0x07)||((tdiff_lsb&0x0f)==0x0A)||((tdiff_lsb&0x0f)==0x0D)||((tdiff_lsb&0x0f)==0x0F)){
+                                tdiff_lsb-=2;//subtrai
+                            }
+                            else    tdiff_lsb--;
+                        }
+                        else{
+                            tdiff_lsb=0xff;//se é 0 vai pro máximo
+                            tdiff_msb--;//e subtrai um desse
+                        }
+                        if(l!=0){
+                            l-=m;//aumenta velocidade de decremento
+                            if(m!=1)
+                                m--;
+                        }
+                        //break;
+                    }
+                    if(!ch1){//se apertar
+                        test++;
+                        if(tdiff_lsb!=0xff){
+                            if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)||((tdiff_lsb&0x0f)==0x08)||((tdiff_lsb&0x0f)==0x0B)||((tdiff_lsb&0x0f)==0x0D)){
+                                    tdiff_lsb+=2;//soma
+                            }
+                                else    tdiff_lsb++;
+                        }
+                        else{
+                            tdiff_lsb=0x00;//se é máximo vai pro zero
+                            tdiff_msb++;//e soma um desse
+                        }
+                        if(l!=0){
+                            l-=m;//aumenta velocidade de incremento
+                            if(m!=1)
+                                m--;
+                        }
+                        //break;
+                    }
+                    for(k=0;k!=l;k++){
+                        for(j=0;j!=0xff;j++){//debounce
+                            atraso_250us(0xff);
+                        }
+                    }
+                    break;
+                }
+                else{
+                    l=60;
+                    m=10;
+                }
+            }
+            //atualiza temperatura de controle no LCD
+            bin2lcd(tdiff_msb,tdiff_lsb,0xC6);//bem no meio da segunda linha
+        }
+        if(!test){//se nenhuma tecla pressionada em 2 segundos, sai
+            RS=0;//volta o lcd para a condição normal e imprime Th e Tl atuais
+            layout_lcd();
+            bin2lcd(min_msb,min_lsb,0xC2);
+            bin2lcd(max_msb,max_lsb,0xCA);
+            TR0=0;//desliga o contador
+            return;
+        }
+        test=0;//se foi pressionada, zera para fazer o teste novamente
+    }
 }
 
 
@@ -416,7 +513,7 @@ void set_temp_var() __critical{
 void main(){
     unsigned char i;
     inicia_display();
-    primeira_impressao();
+    layout_lcd();
     for(i=0;i<0x10;i++){
         le_temperatura();//espera estabilizar
     }
