@@ -1,3 +1,9 @@
+/************************DS18B20.H***********************
+Biblioteca para leitura de temperatura de sensor DS18B20
+Só funciona para UM sensor ligado a um pino do 8051
+Para uso com mais sensores, devem ser ligados a diferentes
+pinos do 8051, o a biblioteca deve ser modificada
+********************************************************/
 #ifndef DS18B20_H
 #define DS18B20_H
 
@@ -47,11 +53,13 @@ void le_temperatura() __critical;
 /****************fim das funções*******************/
 
 __bit rst_one_wire(void)
+/**Reseta o sensor DS18B20 (e possivelmente outros dispositivos one-wire)**/
 {
         __bit presence;
         DQ = 0;                 //pull DQ line low
 	atraso(250);		//leave it low for about 490us
-	atraso(250);
+	atraso(250);		//usando 600us
+	atraso(100);
         DQ = 1;                 // allow line to return high
 	atraso(55);		// wait for presence 55 uS
         presence = DQ;  	// get presence signal
@@ -61,6 +69,7 @@ __bit rst_one_wire(void)
 }// 0=presence, 1 = no part
 
 __bit ReadBit(void)
+/**Lê bit do sensor DS18B20**/
 {
         unsigned char zeus=0;
         DQ = 0;        		// pull DQ low to start timeslot
@@ -70,6 +79,7 @@ __bit ReadBit(void)
 }
 
 void WriteBit(char Dbit)
+/**Envia bit para o sensor DS18B20**/
 {
     	DQ=0;
         DQ = Dbit ? 1:0;
@@ -78,6 +88,7 @@ void WriteBit(char Dbit)
 }
 
 unsigned char ReadByte(void)
+/**Recebe byte do sensor DS18B20**/
 {
         unsigned char horus;
         unsigned char Din = 0;
@@ -90,6 +101,7 @@ unsigned char ReadByte(void)
 }
 
 void WriteByte(unsigned char Dout)
+/**Envia byte para o sensor DS18B20**/
 {
         unsigned char isis;
         for (isis=0; isis!=8; isis++) 		// writes byte, one bit at a time
@@ -101,6 +113,8 @@ void WriteByte(unsigned char Dout)
 }
 
 unsigned char calcula_crc(unsigned char *dado,__bit tipo){
+/**Calcula CRC do dado recebido do sensor DS18B20 e retorna o valor calculado
+se retornar zero, é que recebeu os dados corretamente**/
 	unsigned char joe,tamanho;
 	unsigned char crc=0,crc_index;
 	if(tipo){	//se tipo diferente de zero, faz crc do scratchpad
@@ -117,6 +131,7 @@ unsigned char calcula_crc(unsigned char *dado,__bit tipo){
 }
 
 void inicia_ds18b20(){
+/**Lê o sensor DS18B20 até parar de receber +85 graus, indicando que está pronto para operação**/
 	while(1){	//lê até receber valor válido
 		le_temperatura();
 		if(temp_msb!=5){
@@ -130,6 +145,7 @@ void inicia_ds18b20(){
 }
 
 void le_temperatura() __critical{
+/**Lê temperatura do sensor DS18B20 até receber um valor consistente**/
 	unsigned char scratchpad[9];//guarda os 9 bytes do scrathpad(memória de rascunho)
 	unsigned char pipoca;
 

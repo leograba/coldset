@@ -64,6 +64,9 @@ void ctrl_releh();
 
 
 void bin2lcd(char msb,unsigned char lsb, char lcd_add)
+/**Transcodifica a temperatura recebida do DS18B20 para ASCII,
+arredondando o valor após a vírgula para 1 casa decimal.
+Envia o valor convertido para o endereço lcd_add do display LCD**/
 {
 	__code unsigned char tab[16]={'0','1','1','2','3','3','4','4','5','6','6','7','8','8','9','9'};
 	unsigned char temperatura;
@@ -126,7 +129,8 @@ void bin2lcd(char msb,unsigned char lsb, char lcd_add)
 }
 
 void atualiza_temp() __critical{
-//atualiza temperatura atual
+/**Atualiza a temperatura atual, máxima e mínima no display LCD**/
+	//atualiza temperatura atual
 	bin2lcd(temp_msb,temp_lsb,0x85);
 
 	//verifica se precisa atualizar Max e Min
@@ -157,6 +161,7 @@ void atualiza_temp() __critical{
 }
 
 void atraso_long(){
+/**Gera um atraso visível e desliga backlight após fim do atraso**/
 	unsigned char joe;
 		if(!flag_backlight){
 			return;//se não recebeu interrupção, não gera atraso
@@ -172,17 +177,25 @@ void atraso_long(){
 		backlight=0;//desliga backlight após atraso
 }
 
-void teclado0() __critical __interrupt 0 {//caso chave 0 seja acionada
+void teclado0() __critical __interrupt 0 {
+/**Interrupção ativada quando chave 0 acionada
+indica que backlight deve ser ligado**/
 	flag_backlight=1;
 	select_mode(0);
 }
 
-void teclado1() __critical __interrupt 2 {//caso chave 1 seja acionada
+void teclado1() __critical __interrupt 2 {
+/**Interrupção ativada quando chave 1 acionada
+indica que backlight deve ser ligado**/
 	flag_backlight=1;
 	select_mode(1);
 }
 
-void select_mode(__bit ctrl) __critical{//verifica em qual ajuste entrar, ou se deve imprimir os parametros
+void select_mode(__bit ctrl) __critical{
+/**Verifica, conforme o tempo que o botão + ou - estiver ativado, se deve:
+1) imprimir na tela os parâmetros atuais do termostato;
+2) entrar no modo de ajuste do setpoint (tcon); ou
+3) entrar no modo de ajuste da histerese (tdiff)**/
 	unsigned char kaes;
 	unsigned char letra;
 	__code char status1[6]="Tcon:";
@@ -290,7 +303,8 @@ void select_mode(__bit ctrl) __critical{//verifica em qual ajuste entrar, ou se 
 	set_temp_var();//config. da variação da temperatura de controle
 }
 
-void set_temp(){//seta temperatura de controle
+void set_temp(){
+/**Modo de ajuste da temperatura de controle, ou setpoint (tcon)**/
 	//unsigned char letra;
 	unsigned char iguana,kavalo,lhama=20,macaco=4;
 	__bit test=0;
@@ -385,6 +399,7 @@ void set_temp(){//seta temperatura de controle
 }
 
 void set_temp_var(){//ajusta a variação da temperatura de controle
+/**Modo de ajuste da variação temperatura de controle, ou histerese (tdiff)**/
 	//unsigned char letra;
 	unsigned char indio,oca,cocar=20,tribo=4;
 	unsigned char anterior;
@@ -472,6 +487,7 @@ if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)|
 }
 
 void atualiza_limites(){
+/**Atualiza os limites inferior e superior de acionamento da saída (relé)**/
 	rele_min_msb=rele_max_msb=tcon_msb;//pois tdiff_msb é sempre igual a zero - nem existe mais
 	CY=0;//flag de carry zerada
 	rele_min_lsb=tcon_lsb-tdiff_lsb;//faz a subtração para tmin
@@ -485,7 +501,8 @@ void atualiza_limites(){
 	}
 }
 
-void ctrl_releh(){//ativa e desativa o relé do compressor
+void ctrl_releh(){
+/**Ativa ou desativa a saída (relé), a partir da temperatura atual**/
 //A histerese está entre tcon-tdiff e tcon+tdiff, ou seja, H=(tmin,tmax)=2*tdiff
 	atualiza_limites();
 //Agora faz a comparação para decidir se aciona o relé
