@@ -4,6 +4,8 @@
 /*********DEFINIÇÃO DOS PORTS E CONSTANTES**************/
 // ports
 # define    DQ          P3_1
+# define    ch0         P3_2
+# define    ch1         P3_3
 # define    LCD_dados       P1
 # define    backlight       P2_3
 # define    RdWr            P2_6
@@ -20,16 +22,18 @@ char temp_atual[4]={'+', '0','0','0'};
 //unsigned char cont='0';
 //unsigned char temperatura,minima,maxima;
 char temp_msb,max_msb,min_msb;
+volatile char tcon_msb;
 unsigned char temp_lsb,max_lsb,min_lsb;
+volatile unsigned char tcon_lsb;
 
 
 /********************************************************/
 
 /**************funções de main.c*******************/
 void DelayUs(int );
-bit ResetDS1820(void);
-bit ReadBit(void);
-void WriteBit(bit );
+char ResetDS1820(void);
+char ReadBit(void);
+void WriteBit(char );
 unsigned char ReadByte(void);
 void WriteByte(unsigned char );
 void le_temperatura();
@@ -38,7 +42,7 @@ void atualiza_temp();
 void envia_lcd(char );
 void primeira_impressao();
 void atraso_250us(char );
-void teclado() interrupt 0;
+void teclado() __interrupt 0;
 /****************fim das funções*******************/
 
 
@@ -51,9 +55,9 @@ void DelayUs(int us)
 //----------------------------------------
 // Reset DS1820
 //----------------------------------------
-bit ResetDS1820(void)
+char ResetDS1820(void)
 {
-        bit presence;
+        char presence;
         DQ = 0;                 //pull DQ line low
         DelayUs(40);    // leave it low for about 490us
         DQ = 1;                 // allow line to return high
@@ -66,7 +70,7 @@ bit ResetDS1820(void)
 //-----------------------------------------
 // Read one bit from DS1820
 //-----------------------------------------
-bit ReadBit(void)
+char ReadBit(void)
 {
         unsigned char i=0;
         DQ = 0;         // pull DQ low to start timeslot
@@ -78,7 +82,7 @@ bit ReadBit(void)
 //-----------------------------------------
 // Write one bit to DS1820
 //-----------------------------------------
-void WriteBit(bit Dbit)
+void WriteBit(char Dbit)
 {
         unsigned char i=0;
         DQ=0;
@@ -110,7 +114,7 @@ void WriteByte(unsigned char Dout)
         unsigned char i;
         for (i=0; i<8; i++) // writes byte, one bit at a time
         {
-                WriteBit((bit)(Dout & 0x1));            // write bit in temp into
+                WriteBit(Dout&0x1);            // write bit in temp into
                 Dout = Dout >> 1;
         }
         DelayUs(5);
@@ -118,7 +122,7 @@ void WriteByte(unsigned char Dout)
 
 
 
-void le_temperatura(){
+void le_temperatura() __critical{
     unsigned char scratchpad[10];//guarda os 9 bytes do scrathpad(memória de rascunho)
     unsigned char k,temperatura;
     unsigned char t_msb,t_lsb;
@@ -209,7 +213,7 @@ void inicia_display()
     RS=1;                                       // Prepara para escrita de dados no display
 }                                               // Fim de inicia_display
 
-void atualiza_temp(){
+void atualiza_temp() __critical{
 //atualiza temperatura atual
     RS=0;
     envia_lcd(0x85);//endereço da dezena
@@ -286,7 +290,7 @@ void envia_lcd(char dado)
 
 void primeira_impressao()
 {
-    char fixos[2][17]={"Temp:+00,0","L:     /H:     "};//fixos[2][caracteres+1]
+    char fixos[2][16]={"Temp:+00,0","L:     /H:     "};//fixos[2][caracteres+1]
     char letra;
     RS=0;
     envia_lcd(0x80);
@@ -315,9 +319,26 @@ void atraso_250us(char vezes)   // 125us para 24MHz
         }
 }                               // Fim da funçao atraso_display
 
-void teclado() interrupt 0 {
-    backlight=!backlight;
-    atraso_250us(2);//debounce pouco efetivo, pois não segue com o programa
+void teclado() __critical __interrupt 0 {//caso chave 0 seja acionada
+    char msg[2][17]={"Temp de Controle","Variacao"};
+    unsigned char i;
+    EA=0;//desliga interrupções
+    backlight=1;//liga o backlight do LCD
+    //atraso_250us(2);//debounce pouco efetivo, pois não segue com o programa
+    TMOD=0x01;//timer 0 no modo 16 bits
+    for(i=0;i<20;i++){//pra entrar no modo configuração, tem que segurar por 2 segundos
+        TH0=0x00;//conta o máximo possível
+        TL0=0x00;
+        TR0=1;//inicia contagem do timer 0
+        while(!TF0)
+            if(ch0)//se soltar o push button já era muleke!
+                return;//não entra no modo configuração
+        TR0=0;
+    }//se passou daqui, entrou no modo configuração
+    RS=0;
+    //envia_lcd(0x01);//reseta display
+    //envia_lcd(0x80);
+    RS=1;
 }
 
 
