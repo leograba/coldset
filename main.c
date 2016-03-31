@@ -144,8 +144,8 @@ unsigned char calcula_crc(unsigned char dado[9],__bit tipo){
 		tamanho=8;
 	}
 	for(joe=0;joe!=tamanho;joe++){//realiza oito iterações
-		P0=crc_index=crc^dado[joe];//o índice do crc é uma XOR com o dado
-		P1=crc=crc_lut[crc_index];//novo valor do crc atribuído
+		crc_index=crc^dado[joe];//o índice do crc é uma XOR com o dado
+		crc=crc_lut[crc_index];//novo valor do crc atribuído
 	}
 	return crc;//se tudo deu certo, o valor do crc é zero
 }
@@ -358,6 +358,7 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 	unsigned char letra;
 	__code char status1[6]="Tcon:";
 	__code char status2[7]="Tdiff:";
+	backlight=1;	//liga o backlight do lcd
 	TMOD=(TMOD&0x0f)|0x10;//timer 1 no modo 16 bits
 	for(kaes=0;kaes!=30;kaes++){//pra entrar no modo configuração de temp, tem que segurar por 2 segundos
 		TH1=0x00;//conta o máximo possível
@@ -458,7 +459,8 @@ void select_mode() __critical{//verifica em qual ajuste entrar, ou se deve impri
 
 void set_temp(){//seta temperatura de controle
 	//unsigned char letra;
-	unsigned char test=0,iguana,kavalo,lhama=20,macaco=4;
+	unsigned char iguana,kavalo,lhama=20,macaco=4;
+	__bit test=0;
 	//TMOD=(TMOD&0x0f)|0x10;//timer 1 no modo 16 bits
 	TH1=0x00;//conta o máximo possível
 	TL1=0x00;
@@ -477,8 +479,9 @@ void set_temp(){//seta temperatura de controle
 				//atualiza temperatura de controle no LCD
 				bin2lcd(tcon_msb,tcon_lsb,0xC5);//bem no meio da segunda linha
 				if(!ch0||!ch1){
+					test=1;	//seta a flag de tecla apertada
 					if(!ch0){//se apertar
-						test++;
+						//test=1;	//seta a flag de tecla apertada
 						if(tcon_lsb!=0){
 							tcon_lsb=tcon_lsb-0x08;//subtrai meio grau
 						}
@@ -502,7 +505,7 @@ void set_temp(){//seta temperatura de controle
 						bin2lcd(tcon_msb,tcon_lsb,0xC5);//bem no meio da segunda linha
 					}
 					if(!ch1){//se apertar
-						test++;
+						//test=1;	//seta a flag de tecla apertada
 						if(tcon_lsb!=0xf8){
 							tcon_lsb=tcon_lsb+0x08;//soma meio grau
 						}
@@ -550,8 +553,9 @@ void set_temp(){//seta temperatura de controle
 
 void set_temp_var(){//ajusta a variação da temperatura de controle
 	//unsigned char letra;
-	unsigned char test=0,indio,oca,cocar=20,tribo=4;
+	unsigned char indio,oca,cocar=20,tribo=4;
 	unsigned char anterior;
+	__bit test=0;
 	//TMOD=(TMOD&0x0f)|0x10;//timer 1 no modo 16 bits
 	TH1=0x00;//conta o máximo possível
 	TL1=0x00;
@@ -561,8 +565,8 @@ void set_temp_var(){//ajusta a variação da temperatura de controle
 			TF1=0;
 			while(!TF1){
 				if(!ch0||!ch1){
-				anterior=tdiff_lsb;
-					test++;
+					anterior=tdiff_lsb;
+					test=1;	//seta flag de tecla apertada
 					if(!ch0){//se apertar
 						if(tdiff_lsb>0x00){//trava em 0,0 graus
 							
@@ -671,7 +675,7 @@ void ctrl_releh(){//ativa e desativa o relé do compressor
 }
 
 void inicia_ds18b20(){
-	while(1){
+	while(1){	//lê até receber valor válido
 		le_temperatura();
 		if(temp_msb!=5){
 			if(temp_lsb!=0x50){
@@ -699,7 +703,7 @@ void main(){
 		atualiza_temp();
 		ctrl_releh();
 		if(ctrl){//se recebeu interrupção, entra na select_mode
-			backlight=1;
+		//dessa maneira que estou fazendo, parece mais uma varredura elegante do que interrupção
 			select_mode();
 			ctrl=0;
 			atraso_long();//deixa o backlight ligado no layout padrão por um tempo
