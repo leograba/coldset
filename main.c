@@ -5,7 +5,7 @@
 // ports
 # define    DQ          P3_1
 # define    LCD_dados       P1
-# define    backlight       P3_4
+# define    backlight       P2_3
 # define    RdWr            P2_6
 # define    RS          P2_5
 # define    E           P2_7
@@ -17,7 +17,7 @@
 char temp_atual[4]={'+', '0','0','0'};
 //char temp_min[4]={'+','0','0','0'};
 //char temp_max[4]={'+','0','0','0'};
-unsigned char cont='0';
+//unsigned char cont='0';
 //unsigned char temperatura,minima,maxima;
 char temp_msb,max_msb,min_msb;
 unsigned char temp_lsb,max_lsb,min_lsb;
@@ -26,17 +26,23 @@ unsigned char temp_lsb,max_lsb,min_lsb;
 /********************************************************/
 
 /**************funções de main.c*******************/
+void DelayUs(int );
+bit ResetDS1820(void);
+bit ReadBit(void);
+void WriteBit(bit );
+unsigned char ReadByte(void);
+void WriteByte(unsigned char );
+void le_temperatura();
 void inicia_display();
 void atualiza_temp();
-void atraso_250us(char );
 void envia_lcd(char );
-unsigned char le_bit(void);
-void escreve_bit(char);
-void le_temperatura();
+void primeira_impressao();
+void atraso_250us(char );
+void teclado() interrupt 0;
 /****************fim das funções*******************/
 
 
-void DelayUs(int us)//rotina para 4MHz
+void DelayUs(int us)
 {
         int i;
         for (i=0; i<us; i++);
@@ -75,7 +81,7 @@ bit ReadBit(void)
 void WriteBit(bit Dbit)
 {
         unsigned char i=0;
-    DQ=0;
+        DQ=0;
         DQ = Dbit ? 1:0;
         DelayUs(5);                     // delay about 39 uS
         DQ = 1;
@@ -309,26 +315,36 @@ void atraso_250us(char vezes)   // 125us para 24MHz
         }
 }                               // Fim da funçao atraso_display
 
+void teclado() interrupt 0 {
+    backlight=!backlight;
+    atraso_250us(2);//debounce pouco efetivo, pois não segue com o programa
+}
+
 
 
 void main(){
-    unsigned char i,zero=0;
+    unsigned char i;//,zero=0;
     inicia_display();
     primeira_impressao();
     for(i=0;i<0x25;i++){
     le_temperatura();//espera estabilizar
     }
-    if(temp_msb<1) zero++;
-    //min_msb=max_msb=temp_msb;//inicializa valores com a primeira leitura
-    //min_lsb=max_lsb=temp_lsb;
+    //if(temp_msb<1) zero++;
+    min_msb=max_msb=temp_msb;//inicializa valores com a primeira leitura
+    min_lsb=max_lsb=temp_lsb;
+    IE=0x81;
+    //IT0=0;
     for(;;){//loop infinito
-        if(temp_msb<1) zero++;
+        atraso_250us(1);//atraso necessário para não dar problema com TH,
+//só não entendi qual o problema quando não tem esse atraso
+//Usando laço for, precisou de mais de 2 laços para fazer dar certo o atraso
+        //if(temp_msb<1) zero++;
         le_temperatura();
         atualiza_temp();
-        RS=0;
-        envia_lcd(0x8f);
-        RS=1;
-        envia_lcd(('0'+zero));
+        //RS=0;
+        //envia_lcd(0x8f);
+        //RS=1;
+        //envia_lcd(('0'+zero));
     }
 }
 
