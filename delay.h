@@ -1,37 +1,37 @@
 /************************DELAY.H************************
-Biblioteca que gera atraso preciso para o 8051,
-tendo em vista que foi escrita para o compilador:
-SDCC versão 3.3.0
+Library that generates precision delay for the 8051,
+as long as it is compiled with the SDCC 3.3.0.
+Other situations must be reviewed if precision is intended
 ********************************************************/
 #ifndef DELAY_H
 #define DELAY_H
 
-#include <at89s8252.h> //compatível com AT89S52
+#include <at89s8252.h> //compatible with AT89S52
 
-/**************funções de delay.h*******************/
+/**************delay.h functions declaration*******************/
 void atraso(unsigned char);
 void atraso_250us(unsigned char);
-/****************fim das funções*******************/
+/***************end of the functions declaration***************/
 
 void atraso(unsigned char tempo){
-/**Gera Atraso de até 255us**/
-	//essa rotina não é recomendada para tempos de menos que 30us(22us na verdade, massss....)
-	//as instruções a seguir corrigem o offset da função
+/**Generates delay of 255us maximum**/
+	//This routine isn't recommended for delay of less than 30us (22us truly, but...)
+	//The following instruction compensate the function offset
 	tempo-=15;	//1us
 	tempo/=6;	//8us
-	//cada laço while demora 6us
-	while(tempo){	//enquanto o tempo em us não for zero
-		--tempo;//decrementa a cada ciclo do laço while
+	//every while loop takes 6us
+	while(tempo){	//while time in us is different from zero
+		--tempo;//decrements every iteration
 	}
 }
 
-void atraso_250us(unsigned char vezes)	// 125us para 24MHz
-/**Gera atraso aproximado de (250us x vezes)**/
-{						// Inicio da Função atraso_display
-		while(vezes){			// Espera o n* de vezes de Estouro zerar
+void atraso_250us(unsigned char vezes)	// 125us for a 24MHz clock
+/**Generates delay of approximately (250us x vezes)**/
+{
+		while(vezes){		// Wait until the number of times the 250us is called is enough
 			atraso(250);
-			--vezes;		// Desconta do número de vezes
+			--vezes;		//decrements every iteration
 		}
-}						// Fim da funçao atraso_20us
+}
 
 #endif

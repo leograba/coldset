@@ -1,32 +1,34 @@
-/**********Parâmetros do Sistema*************************/
+/**********System Parameters*************************/
 /**
-Microcontrolador: AT89S52
-Frequência ideal de operação: f=12Mhz
-Ainda assim, sensor DS18B20 e LCD funcionando com f=20Mhz na prática.
-Compilador usado: SDCC 3.3.0 #8604 (may/11/2013)
-IDE usada: MCU 8051 IDE v1.4.7
-Diretivas do SDCC:sdcc -mmcs51 --iram-size 256 --xram-size 0 --code-size 8192  --nooverlay --noinduction --verbose --debug --opt-code-speed -V --std-sdcc89 
+Microcontroller: AT89S52
+Frequency of operation: f=12Mhz
+Still, the DS18B20 and the LCD are working with 20MHz crystal on the bench.
+Compiler: SDCC 3.3.0 #8604 (may/11/2013)
+IDE: MCU 8051 IDE v1.4.7
+Compiler directives: sdcc -mmcs51 --iram-size 256 --xram-size 0 --code-size 8192
+--nooverlay --noinduction --verbose --debug --opt-code-speed -V --std-sdcc89 
 --model-small   "main.c"
-Comprimento de Tabulação (Tab Width):1 tab = 8 espaços (1tab = 8 spaces)
+Tab Width: 1tab = 8 spaces
 **/
-/***********Descrição do Sistema***********************/
+/***********System Description***********************/
 /**
-Este sistema lê periodicamente a temperatura a partir de um sensor DS18B20 e
-mostra esta temperatura em um display de LCD 16x2 HD44780 compatível. O display também mostra
-a máxima e a mínima temperatura registradas desde que o circuito foi ligado ou o último reset.
-Com base na temperatura lida, um relé de 5V é ligado ou desligado, de modo a controlar a temperatura
-de uma geladeira.
-Duas chaves pushbutton mostram/ajustam as configurações do controle de temperatura.
-Os dados do sensor de temperatura são enviados através de um módulo emissor de RF conectado
-à porta serial para outro microcontrolador, para análise posterior e monitoramento remoto.
+This system periodically reads the temperature from a DS18B20 sensor and display
+the reading in a HD44780 compatible 16x2 LCD. The display also shows the highest
+and the lowest temperature readings since the circuit was powered on or reset.
+Based on the temperature reading, a 5V relay is activated/deactivated, so the
+temperature controlling can be interfaced to a power system, such as a 
+refrigerator.
+Two pushbutton let the user get/adjust the system configurations. The probe data
+are sent through an RF module connected to the UART, so remote analysis or
+control can be implemented. Of course the RF can be ommited and wires used.
 **/
 
-#include <at89s8252.h> //compatível com AT89S52
-#include "lcd.h"//biblioteca do display LCD16x2 4 bits
-#include "serial.h"//biblioteca da serial
+#include <at89s8252.h> //compatible with AT89S52
+#include "lcd.h"
+#include "serial.h"
 #include "ds18b20.h"
 
-/*********DEFINIÇÃO DOS PORTS E CONSTANTES**************/
+/********* PORTS AND CONSTANTS DEFINITION****************/
 // ports
 # define	DQ			P3_1
 //# define	DQ1			P3_0
@@ -40,7 +42,7 @@ Os dados do sensor de temperatura são enviados através de um módulo emissor d
 # define	releh			P1_0
 /********************************************************/
 
-/*************** VARIÁVEIS EXTERNAS*********************/
+/************* EXTERNAL VARIABLES (GLOBAL)***************/
 volatile char tcon_msb=0x01,rele_max_msb,rele_min_msb;
 volatile unsigned char tcon_lsb=0x40,tdiff_lsb=0x10,rele_max_lsb,rele_min_lsb;
 __code char msg1[17]="Temp de Controle";
@@ -48,7 +50,7 @@ __code char msg2[14]="Variacao (dt)";
 volatile __bit flag_backlight=0;
 /********************************************************/
 
-/**************funções de main.c*******************/
+/************main.c functions declaration****************/
 void bin2lcd(char ,unsigned char , char );
 void atualiza_temp() __critical;
 void atraso_long();
@@ -59,30 +61,27 @@ void set_temp();
 void set_temp_var();
 void atualiza_limites();
 void ctrl_releh();
-/****************fim das funções*******************/
-
+/***************end of the functions declaration*****************/
 
 
 void bin2lcd(char msb,unsigned char lsb, char lcd_add)
-/**Transcodifica a temperatura recebida do DS18B20 para ASCII,
-arredondando o valor após a vírgula para 1 casa decimal.
-Envia o valor convertido para o endereço lcd_add do display LCD**/
+/**Transcodes the temperature read to ASCII, rounding to 1 decimal, then send
+the converted data to the LCD**/
 {
 	__code unsigned char tab[16]={'0','1','1','2','3','3','4','4','5','6','6','7','8','8','9','9'};
 	unsigned char temperatura;
 	unsigned char atual[4];
-	if(!(msb&0xF0)){//se é uma temperatura positiva
+	if(!(msb&0xF0)){//if it is a positive temperature
 		atual[3]=tab[(lsb&0x0f)];
-		//define o resto
-		lsb=(lsb>>4)&0x0F;//exclui os bits decimais
-		msb=(msb<<4)&0x70;//exclui os bits de sinal
-		temperatura=lsb|msb;//junta temperatura inteira num unico byte
+		lsb=(lsb>>4)&0x0F;//excludes the decimal bits
+		msb=(msb<<4)&0x70;//excludes the sign bits
+		temperatura=lsb|msb;//get temperature into a single byte
 		if(temperatura>=100){
 			atual[0]='1';
 			temperatura-=100;
 		}
 		else{
-			atual[0]=' ';//se temperatura menor que 100 fica em branco
+			atual[0]=' ';//if temperature is less than 100, space is used
 		}
 		if(temperatura<10)	{
 			atual[2]=('0'+temperatura);
@@ -93,21 +92,20 @@ Envia o valor convertido para o endereço lcd_add do display LCD**/
 			atual[2]=('0'+temperatura%10);
 		}
 	}
-	else if((msb&0xF0)){//se é uma temperatura negativa
+	else if((msb&0xF0)){//if it is a negative temperature
 		atual[0]='-';
-		if(lsb){//complemento de 2
+		if(lsb){//two's complement
 			msb=~msb;
-			lsb=~(lsb)+1;//complemento de 2
+			lsb=~(lsb)+1;//two's complement
 		}
-		else if(!lsb){//exceção à regra quando lsb=0
+		else if(!lsb){//singular case when lsb=0
 			msb=(~msb+1);
-		}//fim do complemento de 2
-		//define o dígito decimal
+		}//end of two's complement
+		//defines the decimal digit
 		atual[3]=tab[(lsb&0x0f)];
-		//define o resto
-		lsb=lsb>>4;//exclui os bits decimais
-		msb=(msb<<4)&0x70;//exclui os bits de sinal
-		temperatura=lsb|msb;//junta temperatura inteira num unico byte
+		lsb=lsb>>4;//excludes the decimal bits
+		msb=(msb<<4)&0x70;//excludes the sign bits
+		temperatura=lsb|msb;//get temperature into a single byte
 		if(temperatura<10)	{
 			atual[2]=('0'+temperatura);
 			atual[1]='0';
@@ -117,7 +115,7 @@ Envia o valor convertido para o endereço lcd_add do display LCD**/
 			atual[2]=('0'+temperatura%10);
 		}
 	}
-	//Envia os caracteres para o endereço selecionado
+	//Send chars to the LCD specified address
 	RS=0;
 	envia_lcd(lcd_add);
 	RS=1;
@@ -129,31 +127,27 @@ Envia o valor convertido para o endereço lcd_add do display LCD**/
 }
 
 void atualiza_temp() __critical{
-/**Atualiza a temperatura atual, máxima e mínima no display LCD**/
-	//atualiza temperatura atual
+/**Refreshes the LCD data**/
+	//refreshes current temperature
 	bin2lcd(temp_msb,temp_lsb,0x85);
 
-	//verifica se precisa atualizar Max e Min
-	if(temp_msb>max_msb){//se for maior, atualiza a máxima
-		//atualiza temperatura máxima
+	//check if max and min need refreshing
+	if(temp_msb>max_msb){//if higher, refresh max
 		max_msb=temp_msb;
 		max_lsb=temp_lsb;
 		bin2lcd(max_msb,max_lsb,0xCA);
 	}
-	else if((temp_msb==max_msb)&&(temp_lsb>max_lsb)){//se for maior, atualiza a máxima
-		//atualiza temperatura máxima
+	else if((temp_msb==max_msb)&&(temp_lsb>max_lsb)){//if lower, refresh min
 		max_msb=temp_msb;
 		max_lsb=temp_lsb;
 		bin2lcd(max_msb,max_lsb,0xCA);
 	}
-	 if(temp_msb<min_msb){//se for menor, atualiza a mínima
-		//atualiza temperatura minima
+	 if(temp_msb<min_msb){//if lower, refresh min
 		min_msb=temp_msb;
 		min_lsb=temp_lsb;	
 		bin2lcd(min_msb,min_lsb,0xC2);
 	}
-	else if((temp_msb==min_msb)&&(temp_lsb<min_lsb)){//se for menor, atualiza a mínima
-		//atualiza temperatura minima
+	else if((temp_msb==min_msb)&&(temp_lsb<min_lsb)){//if lower, refresh min
 		min_msb=temp_msb;
 		min_lsb=temp_lsb;
 		bin2lcd(min_msb,min_lsb,0xC2);
@@ -161,126 +155,126 @@ void atualiza_temp() __critical{
 }
 
 void atraso_long(){
-/**Gera um atraso visível e desliga backlight após fim do atraso**/
+/**Generates a visible delay and turn backlight off after it**/
 	unsigned char joe;
 		if(!flag_backlight){
-			return;//se não recebeu interrupção, não gera atraso
+			return;//only delay if it was requested by user pushbutton press
 		}
-		flag_backlight=0;//zera a flag de tratamento de interrupção
-		for(joe=0;joe!=32;joe++){//gera um atraso de aprox. 2s
-			if(flag_backlight){//se recebe interrupção durante atraso, sai do atraso
-			//mas mantem a flag setada para iniciar novo atraso
+		flag_backlight=0;//prepare for another interrupt
+		for(joe=0;joe!=32;joe++){//generate approximately 2s delay
+			if(flag_backlight){//if another interrupt, stop the current delay
+			//but keep the flag set so another delay will start
 				return;
 			}
 			 atraso_250us(250);
 		}
-		backlight=0;//desliga backlight após atraso
+		backlight=0;//turn backlight off after delay
 }
 
 void teclado0() __critical __interrupt 0 {
-/**Interrupção ativada quando chave 0 acionada
-indica que backlight deve ser ligado**/
+/**Interrupt activated when pushbutton 0 is pressed indicates that backlight
+must be lit**/
 	flag_backlight=1;
 	select_mode(0);
 }
 
 void teclado1() __critical __interrupt 2 {
-/**Interrupção ativada quando chave 1 acionada
-indica que backlight deve ser ligado**/
+/**Interrupt activated when pushbutton 1 is pressed indicates that backlight
+must be lit**/
 	flag_backlight=1;
 	select_mode(1);
 }
 
 void select_mode(__bit ctrl) __critical{
-/**Verifica, conforme o tempo que o botão + ou - estiver ativado, se deve:
-1) imprimir na tela os parâmetros atuais do termostato;
-2) entrar no modo de ajuste do setpoint (tcon); ou
-3) entrar no modo de ajuste da histerese (tdiff)**/
+/**Check, based on the time that the user holds the pushbutton pressed, if must:
+1) Print the current system configuration
+2) Enter the setpoint (tcon) adjust mode 
+3) Enter the hysteresis (tdiff) adjust mode**/
 	unsigned char kaes;
 	unsigned char letra;
 	__code char status1[6]="Tcon:";
 	__code char status2[7]="Tdiff:";
-	backlight=1;	//liga o backlight do lcd
-	TMOD=(TMOD&0xf0)|0x01;//timer 0 no modo 16 bits
-	for(kaes=0;kaes!=30;kaes++){//pra entrar no modo configuração de temp, tem que segurar por 2 segundos
-		TH0=0x00;//conta o máximo possível
+	backlight=1;	//light up the backlight
+	TMOD=(TMOD&0xf0)|0x01;//timer 0 in the 16 bit mode
+	for(kaes=0;kaes!=30;kaes++){//at least 2s hold until enter the setpoint adjust
+		TH0=0x00;//count as high as possible
 		TL0=0x00;
-		TR0=1;//inicia contagem do timer 0
-		if(!ctrl){//se int veio da tecla 0
+		TR0=1;//start timer 0 counting
+		if(!ctrl){//if interrupt came from pushbutton 0
 			while(!TF0){
-				if(ch0){//se soltar o push button já era muleke!
-					reset_lcd();//reseta display
+				if(ch0){//if user release the pushbutton
+					reset_lcd();//reset display
 					RS=1;
 					for(letra=0;letra!=5;letra++){
 						envia_lcd(status1[letra]);
 					}
 					bin2lcd(tcon_msb,tcon_lsb,0x85);
 					RS=0;
-					envia_lcd(0xC0);//reseta display
+					envia_lcd(0xC0);//reset display
 					RS=1;
 					for(letra=0;letra!=6;letra++){
 						envia_lcd(status2[letra]);
 					}
 					bin2lcd(0x00,tdiff_lsb,0xC6);
 					atraso_long();
-					backlight=1;//a rotina atraso_long desliga o backlight
-					flag_backlight=1;//precisa setar senão o display não apaga depois
+					backlight=1;//atraso_long turn backlight off
+					flag_backlight=1;//need to set, otherwise backlight won't turn off
 					layout_lcd();
 					bin2lcd(min_msb,min_lsb,0xC2);
 					bin2lcd(max_msb,max_lsb,0xCA);
-					return;//não entra no modo configuração
+					return;//don't enter system configuration
 				}
 			}
 		}
-		else if(ctrl){//se int veio da tecla 1
+		else if(ctrl){//if interrupt came from pushbutton 1
 			while(!TF0){
-				if(ch1){//se soltar o push button já era muleke!
-					reset_lcd();//reseta display
+				if(ch1){//if user release the pushbutton
+					reset_lcd();//reset display
 					RS=1;
 					for(letra=0;letra!=5;letra++){
 						envia_lcd(status1[letra]);
 					}
 					bin2lcd(tcon_msb,tcon_lsb,0x85);
 					RS=0;
-					envia_lcd(0xC0);//reseta display
+					envia_lcd(0xC0);//reset display
 					RS=1;
 					for(letra=0;letra!=6;letra++){
 						envia_lcd(status2[letra]);
 					}
 					bin2lcd(0x00,tdiff_lsb,0xC6);
 					atraso_long();
-					backlight=1;//a rotina atraso_long desliga o backlight
-					flag_backlight=1;//precisa setar senão o display não apaga depois
+					backlight=1;//atraso_long turn backlight off
+					flag_backlight=1;//need to set, otherwise backlight won't turn off
 					layout_lcd();
 					bin2lcd(min_msb,min_lsb,0xC2);
 					bin2lcd(max_msb,max_lsb,0xCA);
-					return;//não entra no modo configuração
+					return;//don't enter system configuration
 				}
 			}
 		}
 		TF0=0;
 		TR0=0;
-	}//se passou daqui, entrou no modo configura temperatura
-	reset_lcd();//reseta display
+	}//if got here, setpoint adjust mode
+	reset_lcd();//reset display
 	RS=1;
-	for(letra=0;letra!=16;letra++){//envia "Temp de Controle"
+	for(letra=0;letra!=16;letra++){//send "Temp de Controle"
 		envia_lcd(msg1[letra]);
 	}
-	for(kaes=0;kaes!=90;kaes++){//pra entrar no modo configuração tem que segurar por 8 segundos
-		TH0=0x00;//conta o máximo possível
+	for(kaes=0;kaes!=90;kaes++){//to configure hysteresis, must hold for 8s
+		TH0=0x00;//count as high as possible
 		TL0=0x00;
-		TR0=1;//inicia contagem do timer 0
-		if(!ctrl){//se int veio da tecla 0
+		TR0=1;//start timer 0 counting
+		if(!ctrl){//if int came from pushbutton 0
 			while(!TF0){
-				if(ch0){//se soltar o push button configura set_temp
+				if(ch0){//if user release the pushbutton
 					set_temp();
 					return;
 				}
 			}
 		}
-		else if(ctrl){//se int veio da tecla 1
+		else if(ctrl){//if int came from pushbutton 0
 			while(!TF0){
-				if(ch1){//se soltar o push button configura set_temp
+				if(ch1){//if user release the pushbutton
 					set_temp();
 					return;
 				}
@@ -288,94 +282,92 @@ void select_mode(__bit ctrl) __critical{
 		}
 		TF0=0;
 		TR0=0;
-	}//se passou daqui, entrou no modo configura variação de temp
-	reset_lcd();//reseta display
+	}//if got here, hysteresis adjust mode
+	reset_lcd();//reset display
 	RS=1;
-	for(letra=0;letra!=13;letra++){//envia "Var de Temp"
+	for(letra=0;letra!=13;letra++){//send "Var de Temp"
 		envia_lcd(msg2[letra]);
 	}
-	if(!ctrl){
+	if(!ctrl){//wait for user release of the pushbutton
 		while(!ch0);
 	}
 	else if(ctrl){
 		while(!ch1);
 	}
-	set_temp_var();//config. da variação da temperatura de controle
+	set_temp_var();
 }
 
 void set_temp(){
-/**Modo de ajuste da temperatura de controle, ou setpoint (tcon)**/
+/**Setpoint (tcon) adjust mode**/
 	//unsigned char letra;
 	unsigned char iguana,kavalo,lhama=20,macaco=4;
 	__bit test=0;
-	//TMOD=(TMOD&0x0f)|0x10;//timer 1 no modo 16 bits
-	TH0=0x00;//conta o máximo possível
+	//TMOD=(TMOD&0x0f)|0x10;//timer 1 in the 16 bit mode
+	TH0=0x00;//count as far as possible
 	TL0=0x00;
 	TF0=0;
 	TR0=1;
 	while(1){
-		for(iguana=0;iguana!=40;iguana++){//espera pelo menos um tempo pra apertar alguma tecla
-		/*para 250 repetições:
-		está fazendo uns 8ms pra cada laço for, medido no simulador do MCU
-		o que dá uma espera de 2,25s
-		porém segundo meus cálculos, deveria ser 65535us por laço
-		portanto a espera é de 16,4s - resultado compatível com a
-		simulação no Proteus*/
+		for(iguana=0;iguana!=40;iguana++){//wait for the user to press a pushbutton
+		/*for 250 repetitions (not sure this info is still true):
+		Around 8ms to every iteration, measured in the IDE simulator, which gives 2.25s
+		But by my calculations, should be 65535us every iteration, which gives 16.4s
+		and is compatible with the Proteus simulation*/
 			TF0=0;
 			while(!TF0){
-				//atualiza temperatura de controle no LCD
-				bin2lcd(tcon_msb,tcon_lsb,0xC5);//bem no meio da segunda linha
+				//refresh LCD setpoint value
+				bin2lcd(tcon_msb,tcon_lsb,0xC5);//right in the middle of the second line
 				if(!ch0||!ch1){
-					test=1;	//seta a flag de tecla apertada
-					if(!ch0){//se apertar
-						//test=1;	//seta a flag de tecla apertada
+					test=1;	//set the pressed button flag
+					if(!ch0){//if push 0 is pressed
+						//test=1;	//set the pressed button flag
 						if(tcon_lsb!=0){
-							tcon_lsb=tcon_lsb-0x08;//subtrai meio grau
+							tcon_lsb=tcon_lsb-0x08;//subtract 0.5 degree
 						}
 						else{
-							tcon_lsb=0xf8;//se é 0 vai pro máximo
-							tcon_msb--;//e subtrai um desse
+							tcon_lsb=0xf8;//if it is zero goes to 
+							tcon_msb--;//and decrement the other
 						}
 						if(lhama!=1)
-							lhama-=macaco;//aumenta velocidade de decremento
+							lhama-=macaco;//grow the decrement speed
 							if(macaco!=1)
 								macaco--;
 						if((tcon_msb==-4)&&(tcon_lsb==0xD8)){
-							tcon_lsb+=8;//trava em -50 graus
+							tcon_lsb+=8;//lock in -50 degree
 						}
 						atualiza_limites();
 						if((rele_min_msb==-4)&&(rele_min_lsb==0xA8)){
-							tcon_lsb+=8;//trava em tcon-tdiff=-53 graus
+							tcon_lsb+=8;//lock in tcon-tdiff=-53 degree
 						}
-						iguana=0;//reseta o contador de espera
-						//atualiza temperatura de controle no LCD
-						bin2lcd(tcon_msb,tcon_lsb,0xC5);//bem no meio da segunda linha
+						iguana=0;//reset the waiting counter
+						//refresh LCD setpoint value
+						bin2lcd(tcon_msb,tcon_lsb,0xC5);//right in the middle of the second line
 					}
-					if(!ch1){//se apertar
-						//test=1;	//seta a flag de tecla apertada
+					if(!ch1){//if push 1 is pressed
+						//test=1;	//set the pressed button flag
 						if(tcon_lsb!=0xf8){
-							tcon_lsb=tcon_lsb+0x08;//soma meio grau
+							tcon_lsb=tcon_lsb+0x08;//add half degree
 						}
 						else{
-							tcon_lsb=0x00;//se é máximo vai pro zero
-							tcon_msb++;//e soma um desse
+							tcon_lsb=0x00;//if it is max go to zero
+							tcon_msb++;//and increment the other
 						}
 						if(lhama!=1)
-							lhama-=macaco;//aumenta velocidade de incremento
+							lhama-=macaco;//grow increment speed
 							if(macaco!=1)
 								macaco--;
 						if((tcon_msb==0x07)&&(tcon_lsb==0x88)){
-							tcon_lsb-=8;//trava em +120 graus
+							tcon_lsb-=8;//lock in +120 degree
 						}
 						atualiza_limites();
 						if((rele_max_msb==0x07)&&(rele_max_lsb==0xB8)){
-							tcon_lsb-=8;//trava em tcon+tdiff=+123 graus
+							tcon_lsb-=8;//lock in tcon+tdiff=+123 degree
 						}
-						iguana=0;//reseta o contador de espera
-						//atualiza temperatura de controle no LCD
-						bin2lcd(tcon_msb,tcon_lsb,0xC5);//bem no meio da segunda linha
+						iguana=0;//reset the waiting counter
+						//refresh LCD setpoint value
+						bin2lcd(tcon_msb,tcon_lsb,0xC5);//right in the middle of the second line
 					}
-					for(kavalo=0;kavalo!=lhama;kavalo++){//atraso do debounce
+					for(kavalo=0;kavalo!=lhama;kavalo++){//debouncing
 						atraso_250us(0xff);
 					}
 					break;
@@ -386,84 +378,82 @@ void set_temp(){
 				}
 			}
 		}
-		if(!test){//se nenhuma tecla pressionada em 2 segundos, sai
-			RS=0;//volta o lcd para a condição normal e imprime Th e Tl atuais
+		if(!test){//if no pushbutton is pressed within 2s, exit
+			RS=0;//print lcd default screen
 			layout_lcd();
 			bin2lcd(min_msb,min_lsb,0xC2);
 			bin2lcd(max_msb,max_lsb,0xCA);
-			TR0=0;//desliga o timer
+			TR0=0;//shutdown the timer
 			return;
 		}
-		test=0;//se foi pressionada, zera para fazer o teste novamente
+		test=0;//if pushbutton was pressed, prepare for another testing
 	}
 }
 
-void set_temp_var(){//ajusta a variação da temperatura de controle
-/**Modo de ajuste da variação temperatura de controle, ou histerese (tdiff)**/
+void set_temp_var(){
+/**Hysteresis (tdiff) adjust mode**/
 	//unsigned char letra;
 	unsigned char indio,oca,cocar=20,tribo=4;
 	unsigned char anterior;
 	__bit test=0;
-	//TMOD=(TMOD&0x0f)|0x10;//timer 1 no modo 16 bits
-	TH0=0x00;//conta o máximo possível
+	//TMOD=(TMOD&0x0f)|0x10;//timer 1 in the 16 bit mode
+	TH0=0x00;//count as far as possible
 	TL0=0x00;
 	TR0=1;
 	while(1){
-		for(indio=0;indio!=40;indio++){//espera pelo menos um tempo pra apertar alguma tecla
+		for(indio=0;indio!=40;indio++){//wait for the user to press a pushbutton
 			TF0=0;
 			while(!TF0){
-				//atualiza temperatura de controle no LC
-				bin2lcd(0x00,tdiff_lsb,0xC5);//bem no meio da segunda linha
+				//refresh LCD hysteresis value
+				bin2lcd(0x00,tdiff_lsb,0xC5);//right in the middle of the second line
 				if(!ch0||!ch1){
 					anterior=tdiff_lsb;
-					test=1;	//seta flag de tecla apertada
+					test=1;	//set the pressed button flag
 					if(!ch0){//se apertar
-						if(tdiff_lsb>0x00){//trava em 0,0 graus
-							
-if(((tdiff_lsb&0x0f)==0x02)||((tdiff_lsb&0x0f)==0x05)||((tdiff_lsb&0x0f)==0x07)||((tdiff_lsb&0x0f)==0x0A)||((tdiff_lsb&0x0f)==0x0D)||((tdiff_lsb&0x0f)==0x0F)){
-								tdiff_lsb-=2;//subtrai
+						if(tdiff_lsb>0x00){//lock in 0.0 degree
+							if(((tdiff_lsb&0x0f)==0x02)||((tdiff_lsb&0x0f)==0x05)||((tdiff_lsb&0x0f)==0x07)||((tdiff_lsb&0x0f)==0x0A)||((tdiff_lsb&0x0f)==0x0D)||((tdiff_lsb&0x0f)==0x0F)){
+								tdiff_lsb-=2;//subtracts
 							}
 							else	tdiff_lsb--;
 						}
 						if(cocar!=1){
-							cocar-=tribo;//aumenta velocidade de decremento
+							cocar-=tribo;//grow decrement speed
 							if(tribo!=1)
 								tribo--;
 						}
-						indio=0;//reseta o contador de espera
+						indio=0;//reset the waiting counter
 						//break;
-						//atualiza temperatura de controle no LC
-						bin2lcd(0x00,tdiff_lsb,0xC5);//bem no meio da segunda linha
+						//refresh LCD hysteresis value
+						bin2lcd(0x00,tdiff_lsb,0xC5);//right in the middle of the second line
 					}
-					if(!ch1){//se apertar
-						if(tdiff_lsb<0xf0){//trava em +15,0
-							
-if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)||((tdiff_lsb&0x0f)==0x08)||((tdiff_lsb&0x0f)==0x0B)||((tdiff_lsb&0x0f)==0x0D)){
-									tdiff_lsb+=2;//soma
+					if(!ch1){//if push 1 is pressed
+						if(tdiff_lsb<0xf0){//lock in +15.0 degree
+							if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)||((tdiff_lsb&0x0f)==0x08)||((tdiff_lsb&0x0f)==0x0B)||((tdiff_lsb&0x0f)==0x0D)){
+									tdiff_lsb+=2;//add
 							}
 								else	tdiff_lsb++;
 						}
 						/*else{
-							tdiff_lsb=0x00;//se é máximo vai pro zero
-							tdiff_msb++;//e soma um desse
+							tdiff_lsb=0x00;//if it is max go to zero
+							tdiff_msb++;//and add one here
 						}*/
 						if(cocar!=1){
-							cocar-=tribo;//aumenta velocidade de incremento
+							cocar-=tribo;//grow increment speed
 							if(tribo!=1)
 								tribo--;
 						}
-						indio=0;//reseta o contador de espera
+						indio=0;//reset the waiting counter
 						//break;
-						//atualiza temperatura de controle no LC
-						bin2lcd(0x00,tdiff_lsb,0xC5);//bem no meio da segunda linha
+						//efresh LCD hysteresis value
+						bin2lcd(0x00,tdiff_lsb,0xC5);//right in the middle of the second line
 					}
 					atualiza_limites();
-					//É importante que o IF abaixo leve em conta valores maiores que +123 e menores que -53,
-					//já que alguns valores decimais de tdiff são ignorados
+					//It is important that the following if consider values above +123 and below -53,
+					//once some decimal values of tdiff are previously ignored
 					if(((rele_min_msb==-4)&&(rele_min_lsb<0xB0))||((rele_max_msb==0x07)&&(rele_max_lsb>0xB0))){
 						tdiff_lsb=anterior;
 					}
-					for(oca=0;oca!=cocar;oca++){//atraso do debounce
+					for(oca=0;oca!=cocar;oca++){//debouncing
 						atraso_250us(0xff);
 					}
 					break;
@@ -474,39 +464,39 @@ if(((tdiff_lsb&0x0f)==0x00)||((tdiff_lsb&0x0f)==0x03)||((tdiff_lsb&0x0f)==0x05)|
 				}
 			}
 		}
-		if(!test){//se nenhuma tecla pressionada em 2 segundos, sai
-			RS=0;//volta o lcd para a condição normal e imprime Th e Tl atuais
+		if(!test){//if no pushbutton is pressed within 2s, exit
+			RS=0;//print lcd default screen
 			layout_lcd();
 			bin2lcd(min_msb,min_lsb,0xC2);
 			bin2lcd(max_msb,max_lsb,0xCA);
-			TR0=0;//desliga o contador
+			TR0=0;//shutdown the timer
 			return;
 		}
-		test=0;//se foi pressionada, zera para fazer o teste novamente
+		test=0;//if pushbutton was pressed, prepare for another testing
 	}
 }
 
 void atualiza_limites(){
-/**Atualiza os limites inferior e superior de acionamento da saída (relé)**/
-	rele_min_msb=rele_max_msb=tcon_msb;//pois tdiff_msb é sempre igual a zero - nem existe mais
-	CY=0;//flag de carry zerada
-	rele_min_lsb=tcon_lsb-tdiff_lsb;//faz a subtração para tmin
-	if(CY){//se setou carry, resultado negativo
+/**Refreshes the superior and inferior relay activation limits**/
+	rele_min_msb=rele_max_msb=tcon_msb;//tdiff_msb always equals to zero - was deleted
+	CY=0;//carry flag
+	rele_min_lsb=tcon_lsb-tdiff_lsb;//subtracts for tmin
+	if(CY){//negative result
 		rele_min_msb--;
 	}
 	CY=0;
-	rele_max_lsb=tcon_lsb+tdiff_lsb;//faz a soma para tmax
-	if(CY){//se setou carry, estouro de resultado
+	rele_max_lsb=tcon_lsb+tdiff_lsb;//adds for tmax
+	if(CY){//overflow
 		rele_max_msb++;
 	}
 }
 
 void ctrl_releh(){
-/**Ativa ou desativa a saída (relé), a partir da temperatura atual**/
-//A histerese está entre tcon-tdiff e tcon+tdiff, ou seja, H=(tmin,tmax)=2*tdiff
+/**Activate/deactivate the relay based on the current temperature value**/
+//Hysteresis is between tcon-tdiff and tcon+tdiff, so H=(tmin,tmax)=2*tdiff
 	atualiza_limites();
-//Agora faz a comparação para decidir se aciona o relé
-	if(temp_msb>rele_max_msb){//se ultrapassa máxima liga o relé
+//now compares to decide what to do
+	if(temp_msb>rele_max_msb){//too hot, relay on
 		releh=1;
 		return;
 	}
@@ -516,7 +506,7 @@ void ctrl_releh(){
 			return;
 		}
 	}
-	if(temp_msb<rele_min_msb){//se ultrapassa minima desliga o relé
+	if(temp_msb<rele_min_msb){//too cold, relay off
 		releh=0;
 	}
 	else if(temp_msb==rele_min_msb){
@@ -528,14 +518,14 @@ void ctrl_releh(){
 
 
 void main(){
-	releh=0;// valvula=0;//começa com as saídas de controle desligadas
+	releh=0;// valvula=0;//start with the outputs off
 	inicia_serial();
 	inicia_display();
 	layout_lcd();
 	inicia_ds18b20();
-	IE=0x85;//ativa as interrupções externas \int0 e \int1
+	IE=0x85;//activate external interrupts \int0 e \int1
 	backlight=0;
-	for(;;){//loop infinito
+	for(;;){//infinite loop
 		le_temperatura();
 		atualiza_temp();
 		ctrl_releh();
