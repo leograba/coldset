@@ -9,4 +9,7 @@ The realy control is based in a setpoint and a tolerance. Whenever the temperatu
 ## To do list
 &rarr;Create a bin2dec() function, like the bin2lcd() that is already implemented, and then stop using the DS18B20 data
 as it is provided by the probe and use the value for comparison opertions, etc.
-&rarr;Add the hardware documentation to this github
+
+&rarr;Add the hardware documentation to this github.
+
+&rarr;Use the DS18B20 alarm trigger EEPROM fields to hold system information, so the system setpoint and tolerance can be recovered in case of reset.
